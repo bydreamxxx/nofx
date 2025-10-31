@@ -1,0 +1,268 @@
+"""
+交易员管理器
+
+负责管理多个AutoTrader实例，支持：
+1. 从数据库加载交易员配置
+2. 启动/停止所有交易员
+3. 查询交易员状态
+4. 多交易员竞赛模式
+"""
+
+import asyncio
+from typing import Dict, List, Optional, Any
+from loguru import logger
+
+from trader.auto_trader import AutoTrader, AutoTraderConfig
+from config import Database
+
+
+class TraderManager:
+    """交易员管理器"""
+
+    def __init__(self):
+        self.traders: Dict[str, AutoTrader] = {}  # key: trader ID
+        self.trader_tasks: Dict[str, asyncio.Task] = {}  # 运行中的任务
+
+    async def load_traders_from_database(self, database: Database) -> None:
+        """从数据库加载所有交易员到内存"""
+        # 根据admin_mode确定用户ID
+        admin_mode_str = await database.get_system_config("admin_mode")
+        user_id = "admin" if admin_mode_str != "false" else "default"
+
+        # 获取数据库中的所有交易员
+        traders = await database.get_traders(user_id)
+        logger.info(f"📋 加载数据库中的交易员配置: {len(traders)} 个 (用户: {user_id})")
+
+        # 获取系统配置
+        coin_pool_url = await database.get_system_config("coin_pool_api_url")
+        oi_top_url = await database.get_system_config("oi_top_api_url")
+        use_default_coins_str = await database.get_system_config("use_default_coins")
+        max_daily_loss_str = await database.get_system_config("max_daily_loss")
+        max_drawdown_str = await database.get_system_config("max_drawdown")
+        stop_trading_minutes_str = await database.get_system_config(
+            "stop_trading_minutes"
+        )
+        btc_eth_leverage_str = await database.get_system_config("btc_eth_leverage")
+        altcoin_leverage_str = await database.get_system_config("altcoin_leverage")
+
+        # 解析配置
+        use_default_coins = use_default_coins_str == "true"
+        max_daily_loss = float(max_daily_loss_str) if max_daily_loss_str else 10.0
+        max_drawdown = float(max_drawdown_str) if max_drawdown_str else 20.0
+        stop_trading_minutes = (
+            int(stop_trading_minutes_str) if stop_trading_minutes_str else 60
+        )
+        btc_eth_leverage = (
+            int(btc_eth_leverage_str) if btc_eth_leverage_str else 5
+        )
+        altcoin_leverage = (
+            int(altcoin_leverage_str) if altcoin_leverage_str else 5
+        )
+
+        # 为每个交易员获取AI模型和交易所配置
+        for trader_cfg in traders:
+            if not trader_cfg.get("enabled", True):
+                logger.info(f"⏭️  交易员 {trader_cfg['name']} 未启用，跳过")
+                continue
+
+            # 获取AI模型配置
+            ai_models = await database.get_ai_models(user_id)
+            ai_model_cfg = None
+            for model in ai_models:
+                if model["id"] == trader_cfg["ai_model_id"]:
+                    ai_model_cfg = model
+                    break
+
+            if not ai_model_cfg:
+                logger.warning(
+                    f"⚠️  交易员 {trader_cfg['name']} 的AI模型 {trader_cfg['ai_model_id']} 不存在，跳过"
+                )
+                continue
+
+            if not ai_model_cfg.get("enabled", True):
+                logger.warning(
+                    f"⚠️  交易员 {trader_cfg['name']} 的AI模型 {ai_model_cfg['name']} 未启用，跳过"
+                )
+                continue
+
+            # 获取交易所配置
+            exchanges = await database.get_exchanges(user_id)
+            exchange_cfg = None
+            for exchange in exchanges:
+                if exchange["id"] == trader_cfg["exchange_id"]:
+                    exchange_cfg = exchange
+                    break
+
+            if not exchange_cfg:
+                logger.warning(
+                    f"⚠️  交易员 {trader_cfg['name']} 的交易所 {trader_cfg['exchange_id']} 不存在，跳过"
+                )
+                continue
+
+            if not exchange_cfg.get("enabled", True):
+                logger.warning(
+                    f"⚠️  交易员 {trader_cfg['name']} 的交易所 {exchange_cfg['name']} 未启用，跳过"
+                )
+                continue
+
+            # 添加到TraderManager
+            try:
+                await self._add_trader_from_db(
+                    trader_cfg=trader_cfg,
+                    ai_model_cfg=ai_model_cfg,
+                    exchange_cfg=exchange_cfg,
+                    coin_pool_url=coin_pool_url,
+                    oi_top_url=oi_top_url,
+                    use_default_coins=use_default_coins,
+                    max_daily_loss=max_daily_loss,
+                    max_drawdown=max_drawdown,
+                    stop_trading_hours=stop_trading_minutes / 60,
+                    btc_eth_leverage=btc_eth_leverage,
+                    altcoin_leverage=altcoin_leverage,
+                )
+            except Exception as e:
+                logger.error(f"❌ 添加交易员 {trader_cfg['name']} 失败: {e}")
+                continue
+
+        logger.info(f"✓ 成功加载 {len(self.traders)} 个交易员到内存")
+
+    async def _add_trader_from_db(
+        self,
+        trader_cfg: Dict[str, Any],
+        ai_model_cfg: Dict[str, Any],
+        exchange_cfg: Dict[str, Any],
+        coin_pool_url: str,
+        oi_top_url: str,
+        use_default_coins: bool,
+        max_daily_loss: float,
+        max_drawdown: float,
+        stop_trading_hours: float,
+        btc_eth_leverage: int,
+        altcoin_leverage: int,
+    ) -> None:
+        """内部方法：从配置添加交易员"""
+        trader_id = trader_cfg["id"]
+
+        if trader_id in self.traders:
+            raise ValueError(f"trader ID '{trader_id}' 已存在")
+
+        # 构建AutoTraderConfig
+        config = AutoTraderConfig(
+            id=trader_id,
+            name=trader_cfg["name"],
+            ai_model=ai_model_cfg["provider"],
+            exchange=exchange_cfg["type"],
+            scan_interval_minutes=trader_cfg["scan_interval_minutes"],
+            initial_balance=trader_cfg["initial_balance"],
+            btc_eth_leverage=btc_eth_leverage,
+            altcoin_leverage=altcoin_leverage,
+            max_daily_loss=max_daily_loss,
+            max_drawdown=max_drawdown,
+            stop_trading_hours=stop_trading_hours,
+            is_cross_margin=trader_cfg.get("is_cross_margin", True),
+            use_default_coins=use_default_coins,
+            coin_pool_api_url=coin_pool_url,
+            oi_top_api_url=oi_top_url,
+        )
+
+        # 根据交易所类型设置API密钥
+        if exchange_cfg["type"] == "binance":
+            config.binance_api_key = exchange_cfg["api_key"]
+            config.binance_secret_key = exchange_cfg["secret_key"]
+        elif exchange_cfg["type"] == "hyperliquid":
+            config.hyperliquid_private_key = exchange_cfg.get("private_key", "")
+            config.hyperliquid_wallet_address = exchange_cfg.get("wallet_address", "")
+            config.testnet = exchange_cfg.get("testnet", False)
+        elif exchange_cfg["type"] == "aster":
+            config.aster_private_key = exchange_cfg.get("private_key", "")
+            config.aster_wallet_address = exchange_cfg.get("wallet_address", "")
+            config.testnet = exchange_cfg.get("testnet", False)
+        elif exchange_cfg["type"] == "okx":
+            config.okx_api_key = exchange_cfg.get("api_key", "")
+            config.okx_api_secret = exchange_cfg.get("secret_key", "")
+            config.okx_passphrase = exchange_cfg.get("passphrase", "")
+            config.testnet = exchange_cfg.get("testnet", False)
+
+        # 根据AI模型设置API密钥
+        if ai_model_cfg["provider"] == "qwen":
+            config.qwen_key = ai_model_cfg["api_key"]
+        elif ai_model_cfg["provider"] == "deepseek":
+            config.deepseek_key = ai_model_cfg["api_key"]
+        elif ai_model_cfg["provider"] == "custom":
+            config.custom_api_url = ai_model_cfg.get("base_url", "")
+            config.custom_api_key = ai_model_cfg["api_key"]
+            config.custom_model_name = ai_model_cfg.get("model_name", "")
+
+        # 创建trader实例
+        auto_trader = AutoTrader(config)
+
+        # 初始化trader
+        await auto_trader.initialize()
+
+        # 设置自定义prompt（如果有）
+        custom_prompt = trader_cfg.get("custom_prompt", "")
+        override_base_prompt = trader_cfg.get("override_base_prompt", False)
+        if custom_prompt:
+            auto_trader.set_custom_prompt(custom_prompt, override_base_prompt)
+
+        # 添加到管理器
+        self.traders[trader_id] = auto_trader
+
+        logger.info(
+            f"✅ 交易员 {trader_cfg['name']} (ID: {trader_id}) 已添加到管理器"
+        )
+
+    async def start_all(self) -> None:
+        """启动所有交易员"""
+        logger.info(f"🚀 启动所有交易员 ({len(self.traders)} 个)...")
+
+        for trader_id, trader in self.traders.items():
+            try:
+                # 创建异步任务
+                task = asyncio.create_task(trader.run())
+                self.trader_tasks[trader_id] = task
+                logger.info(f"✅ 交易员 {trader.name} 已启动")
+            except Exception as e:
+                logger.error(f"❌ 启动交易员 {trader.name} 失败: {e}")
+
+        logger.info(f"✓ 已启动 {len(self.trader_tasks)} 个交易员")
+
+    async def stop_all(self) -> None:
+        """停止所有交易员"""
+        logger.info(f"⏹ 停止所有交易员 ({len(self.traders)} 个)...")
+
+        for trader_id, trader in self.traders.items():
+            try:
+                trader.stop()
+                logger.info(f"✅ 交易员 {trader.name} 已停止")
+            except Exception as e:
+                logger.error(f"❌ 停止交易员 {trader.name} 失败: {e}")
+
+        # 等待所有任务完成
+        if self.trader_tasks:
+            await asyncio.gather(*self.trader_tasks.values(), return_exceptions=True)
+            self.trader_tasks.clear()
+
+        logger.info("✓ 所有交易员已停止")
+
+    def get_trader(self, trader_id: str) -> Optional[AutoTrader]:
+        """获取指定交易员"""
+        return self.traders.get(trader_id)
+
+    def get_all_traders(self) -> Dict[str, AutoTrader]:
+        """获取所有交易员"""
+        return self.traders
+
+    def get_trader_status(self, trader_id: str) -> Optional[Dict[str, Any]]:
+        """获取指定交易员的状态"""
+        trader = self.traders.get(trader_id)
+        if not trader:
+            return None
+        return trader.get_status()
+
+    def get_all_trader_status(self) -> List[Dict[str, Any]]:
+        """获取所有交易员的状态"""
+        statuses = []
+        for trader in self.traders.values():
+            statuses.append(trader.get_status())
+        return statuses
