@@ -239,6 +239,9 @@ class TraderManager:
             config.custom_model_name = ai_model_cfg.get("custom_model_name", "")
         elif ai_model_cfg["provider"] == "openrouter":
             config.openrouter_key = ai_model_cfg["api_key"]
+            # 支持自定义 URL 和模型名称（如果有）
+            config.custom_api_url = ai_model_cfg.get("custom_api_url", "")
+            config.custom_model_name = ai_model_cfg.get("custom_model_name", "")
         elif ai_model_cfg["provider"] == "deepseek":
             config.deepseek_key = ai_model_cfg["api_key"]
             # 支持自定义 URL 和模型名称（如果有）

@@ -104,7 +104,7 @@ class Client:
 
         logger.debug("✓ Qwen API 已配置")
 
-    def set_openrouter_api_key(self, api_key: str, model: str):
+    def set_openrouter_api_key(self, api_key: str, custom_url: str = "", custom_model: str = ""):
         """
         设置 OpenRouter API
 
@@ -113,10 +113,26 @@ class Client:
             secret_key: 保留参数（兼容性）
         """
         self.provider = Provider.OPENROUTER
-        self.model = model
+
+        # 处理自定义 URL
+        if custom_url:
+            base_url = custom_url
+            logger.info(f"🔧 [MCP] OpenRouter 使用自定义 BaseURL: {base_url}")
+        else:
+            base_url = "https://openrouter.ai/api/v1"
+            logger.debug(f"🔧 [MCP] OpenRouter 使用默认 BaseURL: {base_url}")
+
+        # 处理自定义模型
+        if custom_model:
+            self.model = custom_model
+            logger.info(f"🔧 [MCP] OpenRouter 使用自定义 Model: {self.model}")
+        else:
+            self.model = "deepseek/deepseek-chat-v3.1"  # 可选: qwen-turbo, qwen-plus, qwen-max
+            logger.debug(f"🔧 [MCP] OpenRouter 使用默认 Model: {self.model}")
+
         self.client = AsyncOpenAI(
             api_key=api_key,
-            base_url="https://openrouter.ai/api/v1",
+            base_url=base_url,
             timeout=120.0
         )
         logger.debug("✓ OpenRouter API 已配置")

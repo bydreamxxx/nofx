@@ -19,6 +19,9 @@ export const getModelIcon = (modelType: string, props: IconProps = {}) => {
     case 'qwen':
       iconPath = '/icons/qwen.svg';
       break;
+    case 'openrouter':
+      iconPath = '/icons/openrouter.svg';
+      break;
     default:
       return null;
   }

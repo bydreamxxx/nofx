@@ -814,3 +814,71 @@ class AutoTrader:
             ),
             "initial_balance": self.initial_balance,
         }
+
+    # ===== Getter Methods (与Go版本对齐) =====
+
+    def get_id(self) -> str:
+        """获取交易员ID"""
+        return self.id
+
+    def get_name(self) -> str:
+        """获取交易员名称"""
+        return self.name
+
+    def get_ai_model(self) -> str:
+        """获取AI模型名称"""
+        return self.ai_model
+
+    def get_exchange(self) -> str:
+        """获取交易所名称"""
+        return self.exchange
+
+    def get_decision_logger(self):
+        """获取决策日志记录器"""
+        return self.decision_logger
+
+    def get_system_prompt_template(self) -> str:
+        """获取系统提示词模板名称"""
+        return self.system_prompt_template
+
+    def set_system_prompt_template(self, template_name: str) -> None:
+        """设置系统提示词模板"""
+        self.system_prompt_template = template_name
+        logger.info(f"📝 [{self.name}] 系统提示词模板已设置: {template_name}")
+
+    def set_override_base_prompt(self, override: bool) -> None:
+        """设置是否覆盖基础提示词"""
+        self.override_base_prompt = override
+        logger.info(f"📝 [{self.name}] 覆盖基础提示词: {override}")
+
+    async def get_account_info(self) -> Dict[str, Any]:
+        """
+        获取账户信息（与Go版本对齐）
+
+        Returns:
+            账户信息字典
+        """
+        try:
+            balance = await self.trader.get_balance()
+
+            total_wallet_balance = balance.get("totalWalletBalance", 0.0)
+            total_unrealized_profit = balance.get("totalUnrealizedProfit", 0.0)
+            available_balance = balance.get("availableBalance", 0.0)
+
+            total_equity = total_wallet_balance + total_unrealized_profit
+            total_pnl = total_equity - self.initial_balance
+            total_pnl_pct = (
+                (total_pnl / self.initial_balance) * 100 if self.initial_balance > 0 else 0
+            )
+
+            return {
+                "total_equity": total_equity,
+                "available_balance": available_balance,
+                "total_pnl": total_pnl,
+                "total_pnl_pct": total_pnl_pct,
+                "initial_balance": self.initial_balance,
+            }
+
+        except Exception as e:
+            logger.error(f"获取账户信息失败: {e}")
+            raise

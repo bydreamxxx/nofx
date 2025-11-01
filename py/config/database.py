@@ -181,6 +181,7 @@ class Database:
         ai_models = [
             {"id": "deepseek", "name": "DeepSeek", "provider": "deepseek"},
             {"id": "qwen", "name": "Qwen", "provider": "qwen"},
+            {"id": "openrouter", "name": "OpenRouter", "provider": "openrouter"},
         ]
 
         for model in ai_models:
@@ -408,7 +409,8 @@ class Database:
                 # 使用默认名称
                 name_map = {
                     "deepseek": "DeepSeek AI",
-                    "qwen": "Qwen AI"
+                    "qwen": "Qwen AI",
+                    "openrouter": "OpenRouter AI"
                 }
                 name = name_map.get(provider, f"{provider} AI")
 
