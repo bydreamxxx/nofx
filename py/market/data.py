@@ -4,6 +4,7 @@
 
 import httpx
 import pandas as pd
+import pandas_ta as ta
 import numpy as np
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
@@ -193,41 +194,23 @@ class MarketDataFetcher:
                 return 0.0
 
     def _calculate_ema(self, series: pd.Series, period: int) -> pd.Series:
-        """计算 EMA"""
-        return series.ewm(span=period, adjust=False).mean()
+        """计算 EMA - 使用 pandas_ta"""
+        return ta.ema(series, length=period)
 
     def _calculate_macd(self, series: pd.Series) -> float:
-        """计算 MACD"""
-        ema12 = series.ewm(span=12, adjust=False).mean()
-        ema26 = series.ewm(span=26, adjust=False).mean()
-        macd = ema12 - ema26
-        return macd.iloc[-1]
+        """计算 MACD - 使用 pandas_ta"""
+        macd_result = ta.macd(series, fast=12, slow=26, signal=9)
+        # macd_result 是一个 DataFrame，包含 MACD_12_26_9, MACDh_12_26_9, MACDs_12_26_9
+        return macd_result['MACD_12_26_9'].iloc[-1]
 
     def _calculate_rsi(self, series: pd.Series, period: int) -> pd.Series:
-        """计算 RSI"""
-        delta = series.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-
-        return rsi
+        """计算 RSI - 使用 pandas_ta"""
+        return ta.rsi(series, length=period)
 
     def _calculate_atr(self, df: pd.DataFrame, period: int) -> float:
-        """计算 ATR"""
-        high = df['high']
-        low = df['low']
-        close = df['close']
-
-        tr1 = high - low
-        tr2 = abs(high - close.shift())
-        tr3 = abs(low - close.shift())
-
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr = tr.rolling(window=period).mean()
-
-        return atr.iloc[-1]
+        """计算 ATR - 使用 pandas_ta"""
+        atr_result = ta.atr(df['high'], df['low'], df['close'], length=period)
+        return atr_result.iloc[-1]
 
     def _calculate_intraday_series(self, df: pd.DataFrame) -> IntradayData:
         """计算日内系列数据"""
@@ -238,10 +221,9 @@ class MarketDataFetcher:
         rsi7_values = self._calculate_rsi(closes, 7).tolist()
         rsi14_values = self._calculate_rsi(closes, 14).tolist()
 
-        # 简化的 MACD
-        ema12 = closes.ewm(span=12, adjust=False).mean()
-        ema26 = closes.ewm(span=26, adjust=False).mean()
-        macd_values = (ema12 - ema26).tolist()
+        # 使用 pandas_ta 计算 MACD 系列
+        macd_result = ta.macd(closes, fast=12, slow=26, signal=9)
+        macd_values = macd_result['MACD_12_26_9'].tolist()
 
         return IntradayData(
             mid_prices=mid_prices,
@@ -263,10 +245,9 @@ class MarketDataFetcher:
         current_volume = volumes.iloc[-1]
         average_volume = volumes.mean()
 
-        # 计算 MACD 系列
-        ema12 = closes.ewm(span=12, adjust=False).mean()
-        ema26 = closes.ewm(span=26, adjust=False).mean()
-        macd_values = (ema12 - ema26).tolist()
+        # 使用 pandas_ta 计算 MACD 系列
+        macd_result = ta.macd(closes, fast=12, slow=26, signal=9)
+        macd_values = macd_result['MACD_12_26_9'].tolist()
 
         # 计算 RSI14 系列
         rsi14_values = self._calculate_rsi(closes, 14).tolist()

@@ -40,6 +40,7 @@ class TraderConfig(BaseModel):
     # AI配置
     qwen_key: Optional[str] = None
     deepseek_key: Optional[str] = None
+    openrouter_key: Optional[str] = None
 
     # 自定义AI API配置
     custom_api_url: Optional[str] = None
@@ -105,6 +106,8 @@ class Config(BaseModel):
             # 验证AI配置
             if trader.ai_model == "qwen" and not trader.qwen_key:
                 raise ValueError(f"Trader {trader.id}: Qwen AI model requires qwen_key")
+            elif trader.ai_model == "openrouter" and not trader.openrouter_key:
+                raise ValueError(f"Trader {trader.id}: OpenRouter AI model requires openrouter_key")
             elif trader.ai_model == "deepseek" and not trader.deepseek_key:
                 raise ValueError(f"Trader {trader.id}: DeepSeek AI model requires deepseek_key")
             elif trader.ai_model == "custom":

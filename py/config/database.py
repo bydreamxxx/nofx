@@ -62,6 +62,18 @@ class Database:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )""",
 
+            # 用户信号源配置表
+            """CREATE TABLE IF NOT EXISTS user_signal_sources (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                coin_pool_url TEXT DEFAULT '',
+                oi_top_url TEXT DEFAULT '',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE(user_id)
+            )""",
+
             # 交易员配置表
             """CREATE TABLE IF NOT EXISTS traders (
                 id TEXT PRIMARY KEY,
@@ -72,6 +84,11 @@ class Database:
                 initial_balance REAL NOT NULL,
                 scan_interval_minutes INTEGER DEFAULT 3,
                 is_running BOOLEAN DEFAULT 0,
+                btc_eth_leverage INTEGER DEFAULT 5,
+                altcoin_leverage INTEGER DEFAULT 5,
+                trading_symbols TEXT DEFAULT '',
+                use_coin_pool BOOLEAN DEFAULT 0,
+                use_oi_top BOOLEAN DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,

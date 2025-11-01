@@ -66,6 +66,7 @@ class AutoTraderConfig:
     # AI配置
     deepseek_key: str = ""
     qwen_key: str = ""
+    openrouter_key: str = ""
 
     # 自定义AI API配置
     custom_api_url: str = ""
@@ -94,6 +95,17 @@ class AutoTraderConfig:
 
     # 仓位模式
     is_cross_margin: bool = True  # true=全仓模式, false=逐仓模式
+
+    # 币种配置
+    default_coins: List[str] = None  # 默认币种列表（从数据库获取）
+    trading_coins: List[str] = None  # 实际交易币种列表
+
+    def __post_init__(self):
+        """初始化后处理"""
+        if self.default_coins is None:
+            self.default_coins = []
+        if self.trading_coins is None:
+            self.trading_coins = []
 
 
 class AutoTrader:
@@ -127,6 +139,10 @@ class AutoTrader:
         # 自定义prompt
         self.custom_prompt = ""
         self.override_base_prompt = False
+
+        # 币种列表
+        self.default_coins: List[str] = config.default_coins or []
+        self.trading_coins: List[str] = config.trading_coins or []
 
     async def initialize(self) -> None:
         """初始化所有组件"""
@@ -182,6 +198,9 @@ class AutoTrader:
             logger.info(
                 f"🤖 [{self.name}] 使用自定义AI API: {self.config.custom_api_url} (模型: {self.config.custom_model_name})"
             )
+        elif self.ai_model == "openrouter":
+            self.mcp_client.set_openrouter_api_key(self.config.openrouter_key, model=self.config.custom_model_name)
+            logger.info(f"🤖 [{self.name}] 使用OpenRouter AI (模型: {self.config.custom_model_name})")
         elif self.ai_model == "qwen":
             self.mcp_client.set_qwen_api_key(self.config.qwen_key, "")
             logger.info(f"🤖 [{self.name}] 使用阿里云Qwen AI")

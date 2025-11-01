@@ -1,10 +1,10 @@
 """
 AI API 客户端
-支持 DeepSeek、Qwen 和自定义 OpenAI 兼容 API
+使用 OpenAI SDK 统一调用所有 AI 提供商
+支持: DeepSeek, Qwen, OpenRouter (通过 custom), 和其他 OpenAI 兼容 API
 """
 
-import httpx
-import asyncio
+from openai import AsyncOpenAI
 from enum import Enum
 from typing import Optional
 from loguru import logger
@@ -15,50 +15,95 @@ class Provider(str, Enum):
     DEEPSEEK = "deepseek"
     QWEN = "qwen"
     CUSTOM = "custom"
+    OPENROUTER = "openrouter"
 
 
 class Client:
-    """AI API 客户端"""
+    """AI API 客户端（基于 OpenAI SDK）"""
 
     def __init__(self):
         self.provider: Provider = Provider.DEEPSEEK
-        self.api_key: str = ""
-        self.secret_key: str = ""  # 阿里云可能需要
-        self.base_url: str = "https://api.deepseek.com/v1"
+        self.client: Optional[AsyncOpenAI] = None
         self.model: str = "deepseek-chat"
-        self.timeout: float = 120.0  # 超时时间（秒）
-        self.use_full_url: bool = False  # 是否使用完整URL
 
     def set_deepseek_api_key(self, api_key: str):
-        """设置 DeepSeek API 密钥"""
+        """
+        设置 DeepSeek API
+
+        Args:
+            api_key: DeepSeek API 密钥
+        """
         self.provider = Provider.DEEPSEEK
-        self.api_key = api_key
-        self.base_url = "https://api.deepseek.com/v1"
         self.model = "deepseek-chat"
+        self.client = AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://api.deepseek.com/v1",
+            timeout=120.0
+        )
+        logger.debug("✓ DeepSeek API 已配置")
 
     def set_qwen_api_key(self, api_key: str, secret_key: str = ""):
-        """设置阿里云 Qwen API 密钥"""
+        """
+        设置阿里云 Qwen API
+
+        Args:
+            api_key: Qwen API 密钥
+            secret_key: 保留参数（兼容性）
+        """
         self.provider = Provider.QWEN
-        self.api_key = api_key
-        self.secret_key = secret_key
-        self.base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
         self.model = "qwen-plus"  # 可选: qwen-turbo, qwen-plus, qwen-max
+        self.client = AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            timeout=120.0
+        )
+        logger.debug("✓ Qwen API 已配置")
 
-    def set_custom_api(self, api_url: str, api_key: str, model_name: str):
-        """设置自定义 OpenAI 兼容 API"""
+    def set_openrouter_api_key(self, api_key: str, model: str):
+        """
+        设置 OpenRouter API
+
+        Args:
+            api_key: OpenRouter API 密钥
+            secret_key: 保留参数（兼容性）
+        """
+        self.provider = Provider.OPENROUTER
+        self.model = model
+        self.client = AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+            timeout=120.0
+        )
+        logger.debug("✓ OpenRouter API 已配置")
+
+    def set_custom_api(self, base_url: str, api_key: str, model: str):
+        """
+        设置自定义 OpenAI 兼容 API
+
+        支持所有 OpenAI 兼容的 API，包括：
+        - OpenRouter: base_url = "https://openrouter.ai/api/v1"
+        - 其他自定义 API
+
+        Args:
+            base_url: API 基础 URL（无需 /chat/completions 后缀）
+            api_key: API 密钥
+            model: 模型名称
+                   - OpenRouter: "anthropic/claude-3.5-sonnet", "openai/gpt-4-turbo" 等
+                   - 其他: 根据提供商文档
+        """
         self.provider = Provider.CUSTOM
-        self.api_key = api_key
+        self.model = model
 
-        # 检查URL是否以#结尾，如果是则使用完整URL
-        if api_url.endswith("#"):
-            self.base_url = api_url.rstrip("#")
-            self.use_full_url = True
-        else:
-            self.base_url = api_url
-            self.use_full_url = False
+        # 移除 URL 末尾的 # 标记（兼容旧配置）
+        clean_base_url = base_url.rstrip("#")
 
-        self.model = model_name
-        self.timeout = 120.0
+        self.client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=clean_base_url,
+            timeout=120.0,
+            max_retries=3  # SDK 自动重试
+        )
+        logger.debug(f"✓ 自定义 API 已配置: {clean_base_url} (模型: {model})")
 
     async def call_with_messages(
         self, system_prompt: str, user_prompt: str
@@ -72,106 +117,40 @@ class Client:
 
         Returns:
             AI 返回的内容
+
+        Raises:
+            ValueError: 如果 API 未初始化
+            Exception: API 调用失败
         """
-        if not self.api_key:
-            raise ValueError("AI API密钥未设置，请先调用 set_deepseek_api_key() 或 set_qwen_api_key()")
-
-        # 重试配置
-        max_retries = 3
-        last_error = None
-
-        for attempt in range(1, max_retries + 1):
-            if attempt > 1:
-                logger.warning(f"⚠️  AI API调用失败，正在重试 ({attempt}/{max_retries})...")
-
-            try:
-                result = await self._call_once(system_prompt, user_prompt)
-                if attempt > 1:
-                    logger.success("✓ AI API重试成功")
-                return result
-            except Exception as e:
-                last_error = e
-
-                # 判断是否可重试
-                if not self._is_retryable_error(e):
-                    raise
-
-                # 重试前等待
-                if attempt < max_retries:
-                    wait_time = attempt * 2
-                    logger.info(f"⏳ 等待{wait_time}秒后重试...")
-                    await asyncio.sleep(wait_time)
-
-        raise Exception(f"重试{max_retries}次后仍然失败: {last_error}")
-
-    async def _call_once(self, system_prompt: str, user_prompt: str) -> str:
-        """单次调用 AI API（内部使用）"""
-        # 构建 messages 数组
-        messages = []
-
-        # 添加 system message
-        if system_prompt:
-            messages.append({
-                "role": "system",
-                "content": system_prompt
-            })
-
-        # 添加 user message
-        messages.append({
-            "role": "user",
-            "content": user_prompt
-        })
-
-        # 构建请求体
-        request_body = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": 0.5,  # 降低temperature以提高JSON格式稳定性
-            "max_tokens": 2000,
-        }
-
-        # 创建 HTTP 请求
-        if self.use_full_url:
-            url = self.base_url
-        else:
-            url = f"{self.base_url}/chat/completions"
-
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}"
-        }
-
-        # 发送请求
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                url,
-                json=request_body,
-                headers=headers
+        if not self.client:
+            raise ValueError(
+                "AI API 未初始化，请先调用 set_deepseek_api_key()、"
+                "set_openrouter_api_key()、set_qwen_api_key() 或 set_custom_api()"
             )
 
-            if response.status_code != 200:
-                raise Exception(
-                    f"API返回错误 (status {response.status_code}): {response.text}"
-                )
+        # 构建 messages
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": user_prompt})
 
-            # 解析响应
-            result = response.json()
+        try:
+            # 调用 OpenAI SDK（自动重试）
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.5,
+                max_tokens=2000
+            )
 
-            if not result.get("choices"):
-                raise Exception("API返回空响应")
+            # 提取内容
+            content = response.choices[0].message.content
 
-            return result["choices"][0]["message"]["content"]
+            if not content:
+                raise Exception("API 返回空内容")
 
-    def _is_retryable_error(self, error: Exception) -> bool:
-        """判断错误是否可重试"""
-        error_str = str(error).lower()
-        retryable_errors = [
-            "eof",
-            "timeout",
-            "connection reset",
-            "connection refused",
-            "temporary failure",
-            "no such host",
-        ]
+            return content
 
-        return any(err in error_str for err in retryable_errors)
+        except Exception as e:
+            logger.error(f"❌ AI API 调用失败 ({self.provider}): {e}")
+            raise

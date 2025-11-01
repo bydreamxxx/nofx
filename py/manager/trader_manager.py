@@ -59,6 +59,17 @@ class TraderManager:
             int(altcoin_leverage_str) if altcoin_leverage_str else 5
         )
 
+        # 获取默认币种列表
+        default_coins_str = await database.get_system_config("default_coins")
+        default_coins = []
+        if default_coins_str:
+            import json
+            try:
+                default_coins = json.loads(default_coins_str)
+            except json.JSONDecodeError:
+                logger.warning(f"⚠️ 解析 default_coins 失败，使用空列表")
+                default_coins = []
+
         # 为每个交易员获取AI模型和交易所配置
         for trader_cfg in traders:
             if not trader_cfg.get("enabled", True):
@@ -119,6 +130,7 @@ class TraderManager:
                     stop_trading_hours=stop_trading_minutes / 60,
                     btc_eth_leverage=btc_eth_leverage,
                     altcoin_leverage=altcoin_leverage,
+                    default_coins=default_coins,
                 )
             except Exception as e:
                 logger.error(f"❌ 添加交易员 {trader_cfg['name']} 失败: {e}")
@@ -139,12 +151,42 @@ class TraderManager:
         stop_trading_hours: float,
         btc_eth_leverage: int,
         altcoin_leverage: int,
+        default_coins: List[str],
     ) -> None:
         """内部方法：从配置添加交易员"""
         trader_id = trader_cfg["id"]
 
         if trader_id in self.traders:
             raise ValueError(f"trader ID '{trader_id}' 已存在")
+
+        # 处理交易币种列表
+        trading_coins = []
+        if trader_cfg.get("trading_symbols"):
+            # 解析逗号分隔的交易币种列表
+            symbols = trader_cfg["trading_symbols"].split(",")
+            for symbol in symbols:
+                symbol = symbol.strip()
+                if symbol:
+                    trading_coins.append(symbol)
+
+        # 如果没有指定交易币种，使用默认币种
+        if not trading_coins:
+            trading_coins = default_coins
+
+        # 根据交易员配置决定是否使用信号源
+        effective_coin_pool_url = ""
+        effective_oi_top_url = ""
+        if trader_cfg.get("use_coin_pool") and coin_pool_url:
+            effective_coin_pool_url = coin_pool_url
+            logger.info(f"✓ 交易员 {trader_cfg['name']} 启用 COIN POOL 信号源: {coin_pool_url}")
+        if trader_cfg.get("use_oi_top") and oi_top_url:
+            effective_oi_top_url = oi_top_url
+            logger.info(f"✓ 交易员 {trader_cfg['name']} 启用 OI TOP 信号源: {oi_top_url}")
+
+        # 如果都没启用，使用默认币种
+        use_default_coins_flag = use_default_coins
+        if not effective_coin_pool_url and not effective_oi_top_url:
+            use_default_coins_flag = True
 
         # 构建AutoTraderConfig
         config = AutoTraderConfig(
@@ -160,9 +202,11 @@ class TraderManager:
             max_drawdown=max_drawdown,
             stop_trading_hours=stop_trading_hours,
             is_cross_margin=trader_cfg.get("is_cross_margin", True),
-            use_default_coins=use_default_coins,
-            coin_pool_api_url=coin_pool_url,
-            oi_top_api_url=oi_top_url,
+            use_default_coins=use_default_coins_flag,
+            coin_pool_api_url=effective_coin_pool_url,
+            oi_top_api_url=effective_oi_top_url,
+            default_coins=default_coins,
+            trading_coins=trading_coins,
         )
 
         # 根据交易所类型设置API密钥
@@ -186,6 +230,8 @@ class TraderManager:
         # 根据AI模型设置API密钥
         if ai_model_cfg["provider"] == "qwen":
             config.qwen_key = ai_model_cfg["api_key"]
+        elif ai_model_cfg["provider"] == "openrouter":
+            config.openrouter_key = ai_model_cfg["api_key"]
         elif ai_model_cfg["provider"] == "deepseek":
             config.deepseek_key = ai_model_cfg["api_key"]
         elif ai_model_cfg["provider"] == "custom":

@@ -1,10 +1,10 @@
 # NOFX Python Version - Dependencies
 
 # Web Framework
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-pydantic==2.5.3
-pydantic-settings==2.1.0
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.3
+pydantic-settings>=2.1.0
 
 # Exchange SDKs
 python-binance==1.0.19
@@ -14,7 +14,7 @@ ccxt==4.2.25
 web3==6.15.1
 eth-account==0.11.0
 eth-keys==0.5.0
-eth-utils==4.0.0
+eth-utils>=5.3.1
 
 # AI/LLM Integration
 openai==1.10.0
@@ -29,9 +29,9 @@ passlib[bcrypt]==1.7.4
 python-multipart==0.0.6
 
 # Technical Analysis
-ta-lib==0.4.28
-pandas==2.2.0
-numpy==1.26.3
+pandas-ta>=0.4.67b0
+pandas>=2.2.0
+numpy>=1.26.3
 
 # Utilities
 python-dotenv==1.0.0
