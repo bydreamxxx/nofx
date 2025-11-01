@@ -67,6 +67,7 @@ class TraderConfig(BaseModel):
 
 class Config(BaseModel):
     """总配置"""
+    admin_mode: bool = False  # 管理员模式（单用户模式）
     traders: List[TraderConfig] = []
     use_default_coins: bool = True
     default_coins: List[str] = Field(default_factory=lambda: [
@@ -80,6 +81,7 @@ class Config(BaseModel):
     max_drawdown: float = 0.0
     stop_trading_minutes: int = 0
     leverage: LeverageConfig = Field(default_factory=LeverageConfig)
+    jwt_secret: str = ""  # JWT密钥
 
     def validate_config(self) -> None:
         """验证配置"""
@@ -123,3 +125,109 @@ def load_config(filename: str) -> Config:
     config = Config(**data)
     config.validate_config()
     return config
+
+
+async def sync_config_to_database(config_path: str, database) -> bool:
+    """
+    从 config.json 读取配置并同步到数据库
+
+    Args:
+        config_path: config.json 文件路径
+        database: Database 实例
+
+    Returns:
+        bool: 是否成功同步
+    """
+    from pathlib import Path
+    from loguru import logger
+
+    # 检查 config.json 是否存在
+    config_file = Path(config_path)
+    if not config_file.exists():
+        logger.info(f"📄 {config_path} 不存在，跳过同步")
+        return False
+
+    try:
+        # 加载配置（使用现有的 Config 结构体）
+        logger.info(f"🔄 开始从 {config_path} 同步配置到数据库...")
+        config = load_config(config_path)
+
+        # 同步系统配置到数据库
+        sync_count = 0
+
+        # admin_mode
+        await database.set_system_config("admin_mode", str(config.admin_mode).lower())
+        logger.success(f"✓ 同步配置: admin_mode = {config.admin_mode}")
+        sync_count += 1
+
+        # api_server_port
+        await database.set_system_config("api_server_port", str(config.api_server_port))
+        logger.success(f"✓ 同步配置: api_server_port = {config.api_server_port}")
+        sync_count += 1
+
+        # use_default_coins
+        await database.set_system_config("use_default_coins", str(config.use_default_coins).lower())
+        logger.success(f"✓ 同步配置: use_default_coins = {config.use_default_coins}")
+        sync_count += 1
+
+        # default_coins（转换为JSON字符串）
+        if config.default_coins:
+            default_coins_json = json.dumps(config.default_coins)
+            await database.set_system_config("default_coins", default_coins_json)
+            logger.success(f"✓ 同步配置: default_coins = {default_coins_json}")
+            sync_count += 1
+
+        # coin_pool_api_url
+        await database.set_system_config("coin_pool_api_url", config.coin_pool_api_url)
+        logger.success(f"✓ 同步配置: coin_pool_api_url = {config.coin_pool_api_url}")
+        sync_count += 1
+
+        # oi_top_api_url
+        await database.set_system_config("oi_top_api_url", config.oi_top_api_url)
+        logger.success(f"✓ 同步配置: oi_top_api_url = {config.oi_top_api_url}")
+        sync_count += 1
+
+        # max_daily_loss
+        await database.set_system_config("max_daily_loss", str(float(config.max_daily_loss)))
+        logger.success(f"✓ 同步配置: max_daily_loss = {config.max_daily_loss}")
+        sync_count += 1
+
+        # max_drawdown
+        await database.set_system_config("max_drawdown", str(float(config.max_drawdown)))
+        logger.success(f"✓ 同步配置: max_drawdown = {config.max_drawdown}")
+        sync_count += 1
+
+        # stop_trading_minutes
+        await database.set_system_config("stop_trading_minutes", str(int(config.stop_trading_minutes)))
+        logger.success(f"✓ 同步配置: stop_trading_minutes = {config.stop_trading_minutes}")
+        sync_count += 1
+
+        # btc_eth_leverage
+        if config.leverage.btc_eth_leverage > 0:
+            await database.set_system_config("btc_eth_leverage", str(config.leverage.btc_eth_leverage))
+            logger.success(f"✓ 同步配置: btc_eth_leverage = {config.leverage.btc_eth_leverage}")
+            sync_count += 1
+
+        # altcoin_leverage
+        if config.leverage.altcoin_leverage > 0:
+            await database.set_system_config("altcoin_leverage", str(config.leverage.altcoin_leverage))
+            logger.success(f"✓ 同步配置: altcoin_leverage = {config.leverage.altcoin_leverage}")
+            sync_count += 1
+
+        # jwt_secret
+        if config.jwt_secret:
+            await database.set_system_config("jwt_secret", config.jwt_secret)
+            logger.success(f"✓ 同步配置: jwt_secret = ***（已隐藏）")
+            sync_count += 1
+
+        logger.success(f"✅ config.json 同步完成，共同步 {sync_count} 项配置")
+        return True
+
+    except FileNotFoundError:
+        logger.warning(f"⚠️  {config_path} 不存在")
+        return False
+    except Exception as e:
+        logger.error(f"❌ 同步配置到数据库失败: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
+        return False

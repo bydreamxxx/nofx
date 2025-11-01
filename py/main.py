@@ -11,10 +11,11 @@ from loguru import logger
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import load_config, Database
+from config import load_config, Database, sync_config_to_database
 from manager import TraderManager
 from api import create_app
 import uvicorn
+import auth
 
 
 async def main():
@@ -67,6 +68,22 @@ async def main():
         logger.error(f"❌ 数据库连接失败: {e}")
         return
 
+    # 同步 config.json 到数据库
+    await sync_config_to_database(args.config, database)
+
+    # 初始化认证系统
+    logger.info("🔐 初始化认证系统...")
+    jwt_secret = await database.get_system_config("jwt_secret")
+    if not jwt_secret:
+        jwt_secret = "default-secret-please-change-in-production"
+        logger.warning("⚠️  未配置JWT密钥，使用默认密钥（生产环境请修改）")
+    auth.set_jwt_secret(jwt_secret)
+
+    admin_mode_str = await database.get_system_config("admin_mode")
+    admin_mode = admin_mode_str != "false"
+    auth.set_admin_mode(admin_mode)
+    logger.success(f"✓ 认证系统初始化完成 (admin_mode={admin_mode})")
+
     # 初始化交易员管理器
     logger.info("🤖 初始化交易员管理器...")
     trader_manager = TraderManager()
@@ -93,7 +110,7 @@ async def main():
 
     # 创建 FastAPI 应用
     logger.info("🌐 创建 API 服务器...")
-    app = create_app(trader_manager)
+    app = create_app(trader_manager, database)
 
     # 获取API端口配置
     api_port_str = await database.get_system_config("api_server_port")

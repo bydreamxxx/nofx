@@ -89,6 +89,9 @@ class Database:
                 trading_symbols TEXT DEFAULT '',
                 use_coin_pool BOOLEAN DEFAULT 0,
                 use_oi_top BOOLEAN DEFAULT 0,
+                custom_prompt TEXT DEFAULT '',
+                override_base_prompt BOOLEAN DEFAULT 0,
+                is_cross_margin BOOLEAN DEFAULT 1,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -199,8 +202,28 @@ class Database:
         )
         await self.db.commit()
 
+    async def get_traders(self, user_id: str) -> List[Dict[str, Any]]:
+        """获取指定用户的所有交易员"""
+        cursor = await self.db.execute(
+            """SELECT id, user_id, name, ai_model_id, exchange_id, initial_balance,
+                      scan_interval_minutes, is_running,
+                      COALESCE(btc_eth_leverage, 5) as btc_eth_leverage,
+                      COALESCE(altcoin_leverage, 5) as altcoin_leverage,
+                      COALESCE(trading_symbols, '') as trading_symbols,
+                      COALESCE(use_coin_pool, 0) as use_coin_pool,
+                      COALESCE(use_oi_top, 0) as use_oi_top,
+                      COALESCE(custom_prompt, '') as custom_prompt,
+                      COALESCE(override_base_prompt, 0) as override_base_prompt,
+                      COALESCE(is_cross_margin, 1) as is_cross_margin,
+                      created_at, updated_at
+               FROM traders WHERE user_id = ? ORDER BY created_at DESC""",
+            (user_id,)
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
     async def get_all_traders(self) -> List[Dict[str, Any]]:
-        """获取所有交易员"""
+        """获取所有交易员（不区分用户）"""
         cursor = await self.db.execute(
             """SELECT t.*, a.name as ai_model_name, a.provider,
                       e.name as exchange_name, e.type as exchange_type
