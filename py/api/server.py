@@ -578,6 +578,129 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             logger.error(f"获取支持的交易所失败: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+    # === AI模型和交易所配置端点（需要认证）===
+    @app.get("/api/models")
+    async def get_model_configs(current_user: Dict = Depends(get_current_user)):
+        """获取用户的AI模型配置"""
+        try:
+            user_id = current_user["user_id"]
+            models = await database.get_ai_models(user_id)
+            return models
+        except Exception as e:
+            logger.error(f"获取AI模型配置失败: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.put("/api/models")
+    async def update_model_configs(
+        models: Dict[str, Dict],
+        current_user: Dict = Depends(get_current_user)
+    ):
+        """更新AI模型配置"""
+        try:
+            user_id = current_user["user_id"]
+
+            # 遍历更新每个模型
+            for model_id, model_data in models.get("models", {}).items():
+                await database.update_ai_model(
+                    user_id=user_id,
+                    model_id=model_id,
+                    enabled=model_data.get("enabled", False),
+                    api_key=model_data.get("api_key", ""),
+                    custom_api_url=model_data.get("custom_api_url", ""),
+                    custom_model_name=model_data.get("custom_model_name", "")
+                )
+
+            logger.info(f"✅ AI模型配置已更新: {list(models.get('models', {}).keys())}")
+            return {"message": "模型配置已更新"}
+        except Exception as e:
+            logger.error(f"更新AI模型配置失败: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get("/api/exchanges")
+    async def get_exchange_configs(current_user: Dict = Depends(get_current_user)):
+        """获取用户的交易所配置"""
+        try:
+            user_id = current_user["user_id"]
+            exchanges = await database.get_exchanges(user_id)
+            return exchanges
+        except Exception as e:
+            logger.error(f"获取交易所配置失败: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.put("/api/exchanges")
+    async def update_exchange_configs(
+        exchanges: Dict[str, Dict],
+        current_user: Dict = Depends(get_current_user)
+    ):
+        """更新交易所配置"""
+        try:
+            user_id = current_user["user_id"]
+
+            # 遍历更新每个交易所
+            for exchange_id, exchange_data in exchanges.get("exchanges", {}).items():
+                await database.update_exchange(
+                    user_id=user_id,
+                    exchange_id=exchange_id,
+                    enabled=exchange_data.get("enabled", False),
+                    api_key=exchange_data.get("api_key", ""),
+                    secret_key=exchange_data.get("secret_key", ""),
+                    testnet=exchange_data.get("testnet", False),
+                    hyperliquid_wallet_addr=exchange_data.get("hyperliquid_wallet_addr", ""),
+                    aster_user=exchange_data.get("aster_user", ""),
+                    aster_signer=exchange_data.get("aster_signer", ""),
+                    aster_private_key=exchange_data.get("aster_private_key", "")
+                )
+
+            logger.info(f"✅ 交易所配置已更新: {list(exchanges.get('exchanges', {}).keys())}")
+            return {"message": "交易所配置已更新"}
+        except Exception as e:
+            logger.error(f"更新交易所配置失败: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # === 用户信号源配置端点（需要认证）===
+    @app.get("/api/user/signal-sources")
+    async def get_user_signal_source(current_user: Dict = Depends(get_current_user)):
+        """获取用户信号源配置"""
+        try:
+            user_id = current_user["user_id"]
+            source = await database.get_user_signal_source(user_id)
+
+            if source:
+                return {
+                    "coin_pool_url": source.get("coin_pool_url", ""),
+                    "oi_top_url": source.get("oi_top_url", "")
+                }
+            else:
+                # 如果配置不存在，返回空配置
+                return {
+                    "coin_pool_url": "",
+                    "oi_top_url": ""
+                }
+        except Exception as e:
+            logger.error(f"获取用户信号源配置失败: {e}")
+            # 返回空配置而不是错误
+            return {
+                "coin_pool_url": "",
+                "oi_top_url": ""
+            }
+
+    @app.post("/api/user/signal-sources")
+    async def save_user_signal_source(
+        coin_pool_url: str = "",
+        oi_top_url: str = "",
+        current_user: Dict = Depends(get_current_user)
+    ):
+        """保存用户信号源配置"""
+        try:
+            user_id = current_user["user_id"]
+            await database.create_user_signal_source(user_id, coin_pool_url, oi_top_url)
+
+            logger.info(f"✅ 用户信号源配置已保存: user={user_id}, coin_pool={coin_pool_url}, oi_top={oi_top_url}")
+            return {"message": "用户信号源配置已保存"}
+        except Exception as e:
+            logger.error(f"保存用户信号源配置失败: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
     # === Trader管理端点（需要认证）===
     @app.get("/api/traders")
     async def get_traders(current_user: Dict = Depends(get_current_user)):
