@@ -159,6 +159,22 @@ class Database:
 
         await self.db.commit()
 
+        # 添加新字段（如果不存在）
+        alter_queries = [
+            "ALTER TABLE traders ADD COLUMN system_prompt_template TEXT DEFAULT 'default'",  # 系统提示词模板名称
+            "ALTER TABLE ai_models ADD COLUMN custom_api_url TEXT DEFAULT ''",              # 自定义API地址
+            "ALTER TABLE ai_models ADD COLUMN custom_model_name TEXT DEFAULT ''",           # 自定义模型名称
+        ]
+
+        for query in alter_queries:
+            try:
+                await self.db.execute(query)
+            except Exception:
+                # 忽略已存在字段的错误
+                pass
+
+        await self.db.commit()
+
     async def init_default_data(self):
         """初始化默认数据"""
         # 初始化AI模型（使用default用户）
@@ -242,6 +258,7 @@ class Database:
                       COALESCE(use_oi_top, 0) as use_oi_top,
                       COALESCE(custom_prompt, '') as custom_prompt,
                       COALESCE(override_base_prompt, 0) as override_base_prompt,
+                      COALESCE(system_prompt_template, 'default') as system_prompt_template,
                       COALESCE(is_cross_margin, 1) as is_cross_margin,
                       created_at, updated_at
                FROM traders WHERE user_id = ? ORDER BY created_at DESC""",
@@ -276,38 +293,67 @@ class Database:
         row = await cursor.fetchone()
         return dict(row) if row else None
 
-    async def create_trader(self, trader_data: Dict[str, Any]) -> str:
+    async def create_trader(
+        self,
+        trader_id: str,
+        user_id: str,
+        name: str,
+        ai_model_id: str,
+        exchange_id: str,
+        initial_balance: float,
+        btc_eth_leverage: int = 5,
+        altcoin_leverage: int = 5,
+        trading_symbols: str = "",
+        system_prompt_template: str = "default",
+        custom_prompt: str = "",
+        override_base_prompt: bool = False,
+        is_cross_margin: bool = True,
+        use_coin_pool: bool = False,
+        use_oi_top: bool = False,
+        scan_interval_minutes: int = 3,
+    ) -> str:
         """创建交易员"""
         await self.db.execute(
             """INSERT INTO traders
-               (id, user_id, name, ai_model_id, exchange_id,
-                initial_balance, scan_interval_minutes, is_running)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (id, user_id, name, ai_model_id, exchange_id, initial_balance,
+                scan_interval_minutes, is_running, btc_eth_leverage, altcoin_leverage,
+                trading_symbols, use_coin_pool, use_oi_top, custom_prompt,
+                override_base_prompt, system_prompt_template, is_cross_margin)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                trader_data['id'],
-                trader_data.get('user_id', 'default'),
-                trader_data['name'],
-                trader_data['ai_model_id'],
-                trader_data['exchange_id'],
-                trader_data['initial_balance'],
-                trader_data.get('scan_interval_minutes', 3),
-                0
+                trader_id,
+                user_id,
+                name,
+                ai_model_id,
+                exchange_id,
+                initial_balance,
+                scan_interval_minutes,
+                0,  # is_running默认为False
+                btc_eth_leverage,
+                altcoin_leverage,
+                trading_symbols,
+                use_coin_pool,
+                use_oi_top,
+                custom_prompt,
+                override_base_prompt,
+                system_prompt_template,
+                is_cross_margin,
             )
         )
         await self.db.commit()
-        return trader_data['id']
+        return trader_id
 
-    async def update_trader_status(self, trader_id: str, is_running: bool):
+    async def update_trader_status(self, user_id: str, trader_id: str, is_running: bool):
         """更新交易员运行状态"""
         await self.db.execute(
-            "UPDATE traders SET is_running = ? WHERE id = ?",
-            (is_running, trader_id)
+            "UPDATE traders SET is_running = ? WHERE id = ? AND user_id = ?",
+            (is_running, trader_id, user_id)
         )
         await self.db.commit()
 
-    async def delete_trader(self, trader_id: str):
+    async def delete_trader(self, user_id: str, trader_id: str):
         """删除交易员"""
-        await self.db.execute("DELETE FROM traders WHERE id = ?", (trader_id,))
+        await self.db.execute("DELETE FROM traders WHERE id = ? AND user_id = ?", (trader_id, user_id))
         await self.db.commit()
 
     async def get_ai_models(self, user_id: str) -> List[Dict[str, Any]]:

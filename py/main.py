@@ -71,6 +71,15 @@ async def main():
     # 同步 config.json 到数据库
     await sync_config_to_database(args.config, database)
 
+    # 初始化提示词管理器
+    logger.info("📝 初始化提示词管理器...")
+    from decision.prompt_manager import init_prompt_manager
+    try:
+        await init_prompt_manager("prompts")
+        logger.success("✓ 提示词管理器初始化成功")
+    except Exception as e:
+        logger.warning(f"⚠️  提示词管理器初始化失败: {e}")
+
     # 初始化认证系统
     logger.info("🔐 初始化认证系统...")
     jwt_secret = await database.get_system_config("jwt_secret")

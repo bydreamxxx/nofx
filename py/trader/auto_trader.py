@@ -100,6 +100,11 @@ class AutoTraderConfig:
     default_coins: List[str] = None  # 默认币种列表（从数据库获取）
     trading_coins: List[str] = None  # 实际交易币种列表
 
+    # 提示词配置
+    system_prompt_template: str = "default"  # 系统提示词模板名称
+    custom_prompt: str = ""  # 自定义提示词
+    override_base_prompt: bool = False  # 是否覆盖基础提示词
+
     def __post_init__(self):
         """初始化后处理"""
         if self.default_coins is None:
@@ -136,9 +141,10 @@ class AutoTrader:
         self.call_count = 0
         self.position_first_seen_time: Dict[str, int] = {}  # symbol_side -> timestamp毫秒
 
-        # 自定义prompt
-        self.custom_prompt = ""
-        self.override_base_prompt = False
+        # 提示词配置
+        self.system_prompt_template: str = config.system_prompt_template
+        self.custom_prompt: str = config.custom_prompt
+        self.override_base_prompt: bool = config.override_base_prompt
 
         # 币种列表
         self.default_coins: List[str] = config.default_coins or []
@@ -202,11 +208,29 @@ class AutoTrader:
             self.mcp_client.set_openrouter_api_key(self.config.openrouter_key, model=self.config.custom_model_name)
             logger.info(f"🤖 [{self.name}] 使用OpenRouter AI (模型: {self.config.custom_model_name})")
         elif self.ai_model == "qwen":
-            self.mcp_client.set_qwen_api_key(self.config.qwen_key, "")
-            logger.info(f"🤖 [{self.name}] 使用阿里云Qwen AI")
+            self.mcp_client.set_qwen_api_key(
+                api_key=self.config.qwen_key,
+                custom_url=self.config.custom_api_url,
+                custom_model=self.config.custom_model_name
+            )
+            if self.config.custom_api_url or self.config.custom_model_name:
+                logger.info(
+                    f"🤖 [{self.name}] 使用Qwen AI (自定义: URL={self.config.custom_api_url or '默认'}, 模型={self.config.custom_model_name or '默认'})"
+                )
+            else:
+                logger.info(f"🤖 [{self.name}] 使用阿里云Qwen AI")
         else:
-            self.mcp_client.set_deepseek_api_key(self.config.deepseek_key)
-            logger.info(f"🤖 [{self.name}] 使用DeepSeek AI")
+            self.mcp_client.set_deepseek_api_key(
+                api_key=self.config.deepseek_key,
+                custom_url=self.config.custom_api_url,
+                custom_model=self.config.custom_model_name
+            )
+            if self.config.custom_api_url or self.config.custom_model_name:
+                logger.info(
+                    f"🤖 [{self.name}] 使用DeepSeek AI (自定义: URL={self.config.custom_api_url or '默认'}, 模型={self.config.custom_model_name or '默认'})"
+                )
+            else:
+                logger.info(f"🤖 [{self.name}] 使用DeepSeek AI")
 
         # 3. 初始化币种池管理器
         self.coin_pool_manager = CoinPoolManager(
@@ -293,7 +317,14 @@ class AutoTrader:
                 logger.info("📅 日盈亏已重置")
 
             # 3. 构建交易上下文
-            ctx = await self.build_trading_context()
+            try:
+                ctx = await self.build_trading_context()
+            except Exception as e:
+                logger.error(f"❌ 构建交易上下文失败: {e}")
+                record_data["success"] = False
+                record_data["error_message"] = f"构建交易上下文失败: {e}"
+                await self.decision_logger.log_decision(record_data)
+                raise RuntimeError(f"构建交易上下文失败: {e}") from e
 
             # 保存账户状态快照
             record_data["account_state"] = {
@@ -329,14 +360,49 @@ class AutoTrader:
             )
 
             # 4. 调用AI获取完整决策
-            logger.info("🤖 正在请求AI分析并决策...")
-            decision = await self.decision_engine.get_full_decision(
-                ctx, self.custom_prompt, self.override_base_prompt
-            )
+            logger.info(f"🤖 正在请求AI分析并决策... [模板: {self.system_prompt_template}]")
 
-            # 保存prompt和思维链
-            record_data["input_prompt"] = decision.user_prompt
-            record_data["cot_trace"] = decision.cot_trace
+            decision = None
+            try:
+                decision = await self.decision_engine.get_full_decision(
+                    ctx, self.custom_prompt, self.override_base_prompt, self.system_prompt_template
+                )
+
+                # 保存prompt和思维链（包含system_prompt）
+                record_data["system_prompt"] = decision.system_prompt
+                record_data["input_prompt"] = decision.user_prompt
+                record_data["cot_trace"] = decision.cot_trace
+
+            except Exception as e:
+                logger.error(f"❌ 获取AI决策失败: {e}")
+
+                # 即使有错误，也保存思维链、决策和prompt（用于debug）
+                if decision:
+                    record_data["system_prompt"] = decision.system_prompt
+                    record_data["input_prompt"] = decision.user_prompt
+                    record_data["cot_trace"] = decision.cot_trace
+
+                    # 打印系统提示词（错误情况下也要输出以便调试）
+                    if decision.system_prompt:
+                        logger.info("\n" + "=" * 70)
+                        logger.info(f"📋 系统提示词 [模板: {self.system_prompt_template}] (错误情况)")
+                        logger.info("=" * 70)
+                        logger.info(decision.system_prompt)
+                        logger.info("=" * 70 + "\n")
+
+                    if decision.cot_trace:
+                        logger.info("\n" + "-" * 70)
+                        logger.info("💭 AI思维链分析 (错误情况):")
+                        logger.info("-" * 70)
+                        logger.info(decision.cot_trace)
+                        logger.info("-" * 70 + "\n")
+
+                record_data["success"] = False
+                record_data["error_message"] = f"获取AI决策失败: {e}"
+                await self.decision_logger.log_decision(record_data)
+                raise RuntimeError(f"获取AI决策失败: {e}") from e
+
+            # 5. 保存决策JSON
             if decision.decisions:
                 import json
 
@@ -357,14 +423,14 @@ class AutoTrader:
                     indent=2,
                 )
 
-            # 5. 打印AI思维链
+            # 6. 打印AI思维链
             logger.info("\n" + "-" * 70)
             logger.info("💭 AI思维链分析:")
             logger.info("-" * 70)
             logger.info(decision.cot_trace)
             logger.info("-" * 70 + "\n")
 
-            # 6. 打印AI决策
+            # 7. 打印AI决策
             logger.info(f"📋 AI决策列表 ({len(decision.decisions)} 个):")
             for i, d in enumerate(decision.decisions, 1):
                 logger.info(f"  [{i}] {d.symbol}: {d.action} - {d.reasoning}")
@@ -374,14 +440,14 @@ class AutoTrader:
                         f"止损: {d.stop_loss:.4f} | 止盈: {d.take_profit:.4f}"
                     )
 
-            # 7. 对决策排序：确保先平仓后开仓（防止仓位叠加超限）
+            # 8. 对决策排序：确保先平仓后开仓（防止仓位叠加超限）
             sorted_decisions = self._sort_decisions_by_priority(decision.decisions)
 
             logger.info("🔄 执行顺序（已优化）: 先平仓→后开仓")
             for i, d in enumerate(sorted_decisions, 1):
                 logger.info(f"  [{i}] {d.symbol} {d.action}")
 
-            # 8. 执行决策并记录结果
+            # 9. 执行决策并记录结果
             for d in sorted_decisions:
                 action_record = {
                     "action": d.action,
@@ -521,9 +587,10 @@ class AutoTrader:
             (total_margin_used / total_equity) * 100 if total_equity > 0 else 0
         )
 
-        # 5. 分析历史表现（最近100个周期）
+        # 5. 分析历史表现（最近100个周期，避免长期持仓的交易记录丢失）
+        # 假设每3分钟一个周期，100个周期 = 5小时，足够覆盖大部分交易
         try:
-            performance = await self.decision_logger.get_performance_analysis(100)
+            performance = await self.decision_logger.analyze_performance(100)
         except Exception as e:
             logger.warning(f"⚠️  分析历史表现失败: {e}")
             performance = None
@@ -592,7 +659,7 @@ class AutoTrader:
         action_record["price"] = market_data.current_price
 
         # 执行开仓
-        result = await self.trader.open_long(
+        await self.trader.open_long(
             symbol=decision.symbol, quantity=quantity, leverage=decision.leverage
         )
 
@@ -637,7 +704,7 @@ class AutoTrader:
         action_record["price"] = market_data.current_price
 
         # 执行开仓
-        result = await self.trader.open_short(
+        await self.trader.open_short(
             symbol=decision.symbol, quantity=quantity, leverage=decision.leverage
         )
 
@@ -679,7 +746,7 @@ class AutoTrader:
             raise ValueError(f"❌ {decision.symbol} 无多仓可平")
 
         # 执行平仓
-        result = await self.trader.close_long(
+        await self.trader.close_long(
             symbol=decision.symbol, quantity=pos_quantity
         )
 
@@ -705,7 +772,7 @@ class AutoTrader:
             raise ValueError(f"❌ {decision.symbol} 无空仓可平")
 
         # 执行平仓
-        result = await self.trader.close_short(
+        await self.trader.close_short(
             symbol=decision.symbol, quantity=pos_quantity
         )
 

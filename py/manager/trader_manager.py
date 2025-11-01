@@ -207,6 +207,10 @@ class TraderManager:
             oi_top_api_url=effective_oi_top_url,
             default_coins=default_coins,
             trading_coins=trading_coins,
+            # 提示词配置
+            system_prompt_template=trader_cfg.get("system_prompt_template", "default"),
+            custom_prompt=trader_cfg.get("custom_prompt", ""),
+            override_base_prompt=trader_cfg.get("override_base_prompt", False),
         )
 
         # 根据交易所类型设置API密钥
@@ -230,10 +234,16 @@ class TraderManager:
         # 根据AI模型设置API密钥
         if ai_model_cfg["provider"] == "qwen":
             config.qwen_key = ai_model_cfg["api_key"]
+            # 支持自定义 URL 和模型名称（如果有）
+            config.custom_api_url = ai_model_cfg.get("custom_api_url", "")
+            config.custom_model_name = ai_model_cfg.get("custom_model_name", "")
         elif ai_model_cfg["provider"] == "openrouter":
             config.openrouter_key = ai_model_cfg["api_key"]
         elif ai_model_cfg["provider"] == "deepseek":
             config.deepseek_key = ai_model_cfg["api_key"]
+            # 支持自定义 URL 和模型名称（如果有）
+            config.custom_api_url = ai_model_cfg.get("custom_api_url", "")
+            config.custom_model_name = ai_model_cfg.get("custom_model_name", "")
         elif ai_model_cfg["provider"] == "custom":
             config.custom_api_url = ai_model_cfg.get("base_url", "")
             config.custom_api_key = ai_model_cfg["api_key"]
@@ -244,12 +254,6 @@ class TraderManager:
 
         # 初始化trader
         await auto_trader.initialize()
-
-        # 设置自定义prompt（如果有）
-        custom_prompt = trader_cfg.get("custom_prompt", "")
-        override_base_prompt = trader_cfg.get("override_base_prompt", False)
-        if custom_prompt:
-            auto_trader.set_custom_prompt(custom_prompt, override_base_prompt)
 
         # 添加到管理器
         self.traders[trader_id] = auto_trader

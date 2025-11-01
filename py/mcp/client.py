@@ -26,37 +26,82 @@ class Client:
         self.client: Optional[AsyncOpenAI] = None
         self.model: str = "deepseek-chat"
 
-    def set_deepseek_api_key(self, api_key: str):
+    def set_deepseek_api_key(self, api_key: str, custom_url: str = "", custom_model: str = ""):
         """
         设置 DeepSeek API
 
         Args:
             api_key: DeepSeek API 密钥
+            custom_url: 自定义 BaseURL（可选）
+            custom_model: 自定义模型名称（可选）
         """
         self.provider = Provider.DEEPSEEK
-        self.model = "deepseek-chat"
+
+        # 处理自定义 URL
+        if custom_url:
+            base_url = custom_url
+            logger.info(f"🔧 [MCP] DeepSeek 使用自定义 BaseURL: {base_url}")
+        else:
+            base_url = "https://api.deepseek.com/v1"
+            logger.debug(f"🔧 [MCP] DeepSeek 使用默认 BaseURL: {base_url}")
+
+        # 处理自定义模型
+        if custom_model:
+            self.model = custom_model
+            logger.info(f"🔧 [MCP] DeepSeek 使用自定义 Model: {self.model}")
+        else:
+            self.model = "deepseek-chat"
+            logger.debug(f"🔧 [MCP] DeepSeek 使用默认 Model: {self.model}")
+
         self.client = AsyncOpenAI(
             api_key=api_key,
-            base_url="https://api.deepseek.com/v1",
+            base_url=base_url,
             timeout=120.0
         )
+
+        # 打印 API Key 的前后各4位用于验证
+        if len(api_key) > 8:
+            logger.debug(f"🔧 [MCP] DeepSeek API Key: {api_key[:4]}...{api_key[-4:]}")
+
         logger.debug("✓ DeepSeek API 已配置")
 
-    def set_qwen_api_key(self, api_key: str, secret_key: str = ""):
+    def set_qwen_api_key(self, api_key: str, custom_url: str = "", custom_model: str = ""):
         """
         设置阿里云 Qwen API
 
         Args:
             api_key: Qwen API 密钥
-            secret_key: 保留参数（兼容性）
+            custom_url: 自定义 BaseURL（可选）
+            custom_model: 自定义模型名称（可选）
         """
         self.provider = Provider.QWEN
-        self.model = "qwen-plus"  # 可选: qwen-turbo, qwen-plus, qwen-max
+
+        # 处理自定义 URL
+        if custom_url:
+            base_url = custom_url
+            logger.info(f"🔧 [MCP] Qwen 使用自定义 BaseURL: {base_url}")
+        else:
+            base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            logger.debug(f"🔧 [MCP] Qwen 使用默认 BaseURL: {base_url}")
+
+        # 处理自定义模型
+        if custom_model:
+            self.model = custom_model
+            logger.info(f"🔧 [MCP] Qwen 使用自定义 Model: {self.model}")
+        else:
+            self.model = "qwen-plus"  # 可选: qwen-turbo, qwen-plus, qwen-max
+            logger.debug(f"🔧 [MCP] Qwen 使用默认 Model: {self.model}")
+
         self.client = AsyncOpenAI(
             api_key=api_key,
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            base_url=base_url,
             timeout=120.0
         )
+
+        # 打印 API Key 的前后各4位用于验证
+        if len(api_key) > 8:
+            logger.debug(f"🔧 [MCP] Qwen API Key: {api_key[:4]}...{api_key[-4:]}")
+
         logger.debug("✓ Qwen API 已配置")
 
     def set_openrouter_api_key(self, api_key: str, model: str):

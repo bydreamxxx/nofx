@@ -769,6 +769,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
                 "btc_eth_leverage": trader_config.get("btc_eth_leverage", 5),
                 "altcoin_leverage": trader_config.get("altcoin_leverage", 5),
                 "trading_symbols": trader_config.get("trading_symbols", ""),
+                "system_prompt_template": trader_config.get("system_prompt_template", "default"),
                 "custom_prompt": trader_config.get("custom_prompt", ""),
                 "override_base_prompt": trader_config.get("override_base_prompt", False),
                 "is_cross_margin": trader_config.get("is_cross_margin", True),
@@ -792,6 +793,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
         btc_eth_leverage: int = 5,
         altcoin_leverage: int = 5,
         trading_symbols: str = "",
+        system_prompt_template: str = "default",
         custom_prompt: str = "",
         override_base_prompt: bool = False,
         is_cross_margin: bool = True,
@@ -818,6 +820,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
                 btc_eth_leverage=btc_eth_leverage,
                 altcoin_leverage=altcoin_leverage,
                 trading_symbols=trading_symbols,
+                system_prompt_template=system_prompt_template,
                 custom_prompt=custom_prompt,
                 override_base_prompt=override_base_prompt,
                 is_cross_margin=is_cross_margin,
@@ -949,6 +952,52 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             raise
         except Exception as e:
             logger.error(f"停止交易员失败: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # ==================== 提示词模板管理 ====================
+
+    @app.get("/api/prompt-templates")
+    async def get_prompt_templates(
+        current_user: Dict = Depends(get_current_user)
+    ):
+        """获取所有系统提示词模板列表"""
+        try:
+            from decision.prompt_manager import get_all_prompt_templates
+
+            templates = get_all_prompt_templates()
+
+            # 转换为响应格式
+            response = [{"name": tmpl.name} for tmpl in templates]
+
+            return {"templates": response}
+
+        except Exception as e:
+            logger.error(f"获取提示词模板列表失败: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get("/api/prompt-templates/{template_name}")
+    async def get_prompt_template(
+        template_name: str,
+        current_user: Dict = Depends(get_current_user)
+    ):
+        """获取指定名称的提示词模板内容"""
+        try:
+            from decision.prompt_manager import get_prompt_template
+
+            template = get_prompt_template(template_name)
+
+            if not template:
+                raise HTTPException(status_code=404, detail=f"模板不存在: {template_name}")
+
+            return {
+                "name": template.name,
+                "content": template.content
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"获取提示词模板失败: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     logger.info("✅ FastAPI 服务器已创建")

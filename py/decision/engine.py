@@ -100,8 +100,9 @@ class Decision:
 class FullDecision:
     """AI的完整决策（包含思维链）"""
     user_prompt: str  # 发送给AI的输入prompt
-    cot_trace: str  # 思维链分析（AI输出）
-    decisions: List[Decision]  # 具体决策列表
+    system_prompt: str = ""  # 系统提示词（发送给AI的系统prompt）
+    cot_trace: str = ""  # 思维链分析（AI输出）
+    decisions: List[Decision] = field(default_factory=list)  # 具体决策列表
     timestamp: datetime = field(default_factory=datetime.now)
 
 
@@ -119,7 +120,11 @@ class DecisionEngine:
         self.coin_pool_manager = coin_pool_manager
 
     async def get_full_decision(
-        self, ctx: Context, custom_prompt: str = "", override_base: bool = False
+        self,
+        ctx: Context,
+        custom_prompt: str = "",
+        override_base: bool = False,
+        template_name: str = ""
     ) -> FullDecision:
         """
         获取AI的完整交易决策（批量分析所有币种和持仓）
@@ -128,6 +133,7 @@ class DecisionEngine:
             ctx: 交易上下文
             custom_prompt: 自定义prompt（可选）
             override_base: 是否覆盖基础prompt
+            template_name: 提示词模板名称（默认为 "default"）
 
         Returns:
             完整决策，包含思维链和决策列表
@@ -142,6 +148,7 @@ class DecisionEngine:
             ctx.altcoin_leverage,
             custom_prompt,
             override_base,
+            template_name,
         )
         user_prompt = self._build_user_prompt(ctx)
 
@@ -160,6 +167,7 @@ class DecisionEngine:
 
         decision.timestamp = datetime.now()
         decision.user_prompt = user_prompt  # 保存输入prompt
+        decision.system_prompt = system_prompt  # 保存系统prompt
         return decision
 
     async def _fetch_market_data_for_context(self, ctx: Context) -> None:
@@ -245,15 +253,29 @@ class DecisionEngine:
         altcoin_leverage: int,
         custom_prompt: str,
         override_base: bool,
+        template_name: str = "",
     ) -> str:
-        """构建包含自定义内容的 System Prompt"""
+        """
+        构建包含自定义内容的 System Prompt
+
+        Args:
+            account_equity: 账户权益
+            btc_eth_leverage: BTC/ETH 杠杆倍数
+            altcoin_leverage: 山寨币杠杆倍数
+            custom_prompt: 自定义提示词
+            override_base: 是否覆盖基础提示词
+            template_name: 提示词模板名称
+
+        Returns:
+            完整的系统提示词
+        """
         # 如果覆盖基础prompt且有自定义prompt，只使用自定义prompt
         if override_base and custom_prompt:
             return custom_prompt
 
-        # 获取基础prompt
+        # 获取基础prompt（使用模板）
         base_prompt = self._build_system_prompt(
-            account_equity, btc_eth_leverage, altcoin_leverage
+            account_equity, btc_eth_leverage, altcoin_leverage, template_name
         )
 
         # 如果没有自定义prompt，直接返回基础prompt
@@ -265,136 +287,82 @@ class DecisionEngine:
         result += "# 📌 个性化交易策略\n\n"
         result += custom_prompt
         result += "\n\n"
-        result += "**注意**: 以上个性化策略是对基础规则的补充，不能违背基础风险控制原则。\n"
+        result += "注意: 以上个性化策略是对基础规则的补充，不能违背基础风险控制原则。\n"
 
         return result
 
     def _build_system_prompt(
-        self, account_equity: float, btc_eth_leverage: int, altcoin_leverage: int
+        self,
+        account_equity: float,
+        btc_eth_leverage: int,
+        altcoin_leverage: int,
+        template_name: str = ""
     ) -> str:
-        """构建 System Prompt（固定规则，可缓存）"""
+        """
+        构建 System Prompt（使用模板+动态部分）
+
+        Args:
+            account_equity: 账户权益
+            btc_eth_leverage: BTC/ETH 杠杆倍数
+            altcoin_leverage: 山寨币杠杆倍数
+            template_name: 提示词模板名称（默认为 "default"）
+
+        Returns:
+            完整的系统提示词
+        """
         parts = []
 
-        # === 核心使命 ===
-        parts.append("你是专业的加密货币交易AI，在币安合约市场进行自主交易。\n")
-        parts.append("# 🎯 核心目标\n")
-        parts.append("**最大化夏普比率（Sharpe Ratio）**\n")
-        parts.append("夏普比率 = 平均收益 / 收益波动率\n")
-        parts.append("**这意味着**：")
-        parts.append("- ✅ 高质量交易（高胜率、大盈亏比）→ 提升夏普")
-        parts.append("- ✅ 稳定收益、控制回撤 → 提升夏普")
-        parts.append("- ✅ 耐心持仓、让利润奔跑 → 提升夏普")
-        parts.append("- ❌ 频繁交易、小盈小亏 → 增加波动，严重降低夏普")
-        parts.append("- ❌ 过度交易、手续费损耗 → 直接亏损")
-        parts.append("- ❌ 过早平仓、频繁进出 → 错失大行情\n")
-        parts.append("**关键认知**: 系统每3分钟扫描一次，但不意味着每次都要交易！")
-        parts.append("大多数时候应该是 `wait` 或 `hold`，只在极佳机会时才开仓。\n")
+        # 1. 加载提示词模板（核心交易策略部分）
+        if not template_name:
+            template_name = "default"  # 默认使用 default 模板
 
-        # === 硬约束（风险控制）===
-        parts.append("# ⚖️ 硬约束（风险控制）\n")
-        parts.append("1. **风险回报比**: 必须 ≥ 1:3（冒1%风险，赚3%+收益）")
-        parts.append("2. **最多持仓**: 3个币种（质量>数量）")
+        from decision.prompt_manager import get_prompt_template
+
+        template = get_prompt_template(template_name)
+        if not template:
+            # 如果模板不存在，记录错误并使用 default
+            logger.warning(f"⚠️  提示词模板 '{template_name}' 不存在，使用 default")
+            template = get_prompt_template("default")
+            if not template:
+                # 如果连 default 都不存在，使用内置的简化版本
+                logger.error("❌ 无法加载任何提示词模板，使用内置简化版本")
+                parts.append("你是专业的加密货币交易AI。请根据市场数据做出交易决策。\n\n")
+            else:
+                parts.append(template.content)
+                parts.append("\n\n")
+        else:
+            parts.append(template.content)
+            parts.append("\n\n")
+
+        # 2. 硬约束（风险控制）- 动态生成
+        parts.append("# 硬约束（风险控制）\n\n")
+        parts.append("1. 风险回报比: 必须 ≥ 1:3（冒1%风险，赚3%+收益）\n")
+        parts.append("2. 最多持仓: 3个币种（质量>数量）\n")
         parts.append(
-            f"3. **单币仓位**: 山寨{account_equity*0.8:.0f}-{account_equity*1.5:.0f} U({altcoin_leverage}x杠杆) | "
-            f"BTC/ETH {account_equity*5:.0f}-{account_equity*10:.0f} U({btc_eth_leverage}x杠杆)"
+            f"3. 单币仓位: 山寨{account_equity*0.8:.0f}-{account_equity*1.5:.0f} U({altcoin_leverage}x杠杆) | "
+            f"BTC/ETH {account_equity*5:.0f}-{account_equity*10:.0f} U({btc_eth_leverage}x杠杆)\n"
         )
-        parts.append("4. **保证金**: 总使用率 ≤ 90%\n")
+        parts.append("4. 保证金: 总使用率 ≤ 90%\n\n")
 
-        # === 做空激励 ===
-        parts.append("# 📉 做多做空平衡\n")
-        parts.append("**重要**: 下跌趋势做空的利润 = 上涨趋势做多的利润\n")
-        parts.append("- 上涨趋势 → 做多")
-        parts.append("- 下跌趋势 → 做空")
-        parts.append("- 震荡市场 → 观望\n")
-        parts.append("**不要有做多偏见！做空是你的核心工具之一**\n")
-
-        # === 交易频率认知 ===
-        parts.append("# ⏱️ 交易频率认知\n")
-        parts.append("**量化标准**:")
-        parts.append("- 优秀交易员：每天2-4笔 = 每小时0.1-0.2笔")
-        parts.append("- 过度交易：每小时>2笔 = 严重问题")
-        parts.append("- 最佳节奏：开仓后持有至少30-60分钟\n")
-        parts.append("**自查**:")
-        parts.append("如果你发现自己每个周期都在交易 → 说明标准太低")
-        parts.append("如果你发现持仓<30分钟就平仓 → 说明太急躁\n")
-
-        # === 开仓信号强度 ===
-        parts.append("# 🎯 开仓标准（严格）\n")
-        parts.append("只在**强信号**时开仓，不确定就观望。\n")
-        parts.append("**你拥有的完整数据**：")
-        parts.append("- 📊 **原始序列**：3分钟价格序列(MidPrices数组) + 4小时K线序列")
-        parts.append("- 📈 **技术序列**：EMA20序列、MACD序列、RSI7序列、RSI14序列")
-        parts.append("- 💰 **资金序列**：成交量序列、持仓量(OI)序列、资金费率")
-        parts.append("- 🎯 **筛选标记**：AI500评分 / OI_Top排名（如果有标注）\n")
-        parts.append("**分析方法**（完全由你自主决定）：")
-        parts.append(
-            "- 自由运用序列数据，你可以做但不限于趋势分析、形态识别、支撑阻力、技术阻力位、斐波那契、波动带计算"
-        )
-        parts.append("- 多维度交叉验证（价格+量+OI+指标+序列形态）")
-        parts.append("- 用你认为最有效的方法发现高确定性机会")
-        parts.append("- 综合信心度 ≥ 75 才开仓\n")
-        parts.append("**避免低质量信号**：")
-        parts.append("- 单一维度（只看一个指标）")
-        parts.append("- 相互矛盾（涨但量萎缩）")
-        parts.append("- 横盘震荡")
-        parts.append("- 刚平仓不久（<15分钟）\n")
-
-        # === 夏普比率自我进化 ===
-        parts.append("# 🧬 夏普比率自我进化\n")
-        parts.append("每次你会收到**夏普比率**作为绩效反馈（周期级别）：\n")
-        parts.append("**夏普比率 < -0.5** (持续亏损):")
-        parts.append("  → 🛑 停止交易，连续观望至少6个周期（18分钟）")
-        parts.append("  → 🔍 深度反思：")
-        parts.append("     • 交易频率过高？（每小时>2次就是过度）")
-        parts.append("     • 持仓时间过短？（<30分钟就是过早平仓）")
-        parts.append("     • 信号强度不足？（信心度<75）")
-        parts.append("     • 是否在做空？（单边做多是错误的）\n")
-        parts.append("**夏普比率 -0.5 ~ 0** (轻微亏损):")
-        parts.append("  → ⚠️ 严格控制：只做信心度>80的交易")
-        parts.append("  → 减少交易频率：每小时最多1笔新开仓")
-        parts.append("  → 耐心持仓：至少持有30分钟以上\n")
-        parts.append("**夏普比率 0 ~ 0.7** (正收益):")
-        parts.append("  → ✅ 维持当前策略\n")
-        parts.append("**夏普比率 > 0.7** (优异表现):")
-        parts.append("  → 🚀 可适度扩大仓位\n")
-        parts.append("**关键**: 夏普比率是唯一指标，它会自然惩罚频繁交易和过度进出。\n")
-
-        # === 决策流程 ===
-        parts.append("# 📋 决策流程\n")
-        parts.append("1. **分析夏普比率**: 当前策略是否有效？需要调整吗？")
-        parts.append("2. **评估持仓**: 趋势是否改变？是否该止盈/止损？")
-        parts.append("3. **寻找新机会**: 有强信号吗？多空机会？")
-        parts.append("4. **输出决策**: 思维链分析 + JSON\n")
-
-        # === 输出格式 ===
-        parts.append("# 📤 输出格式\n")
-        parts.append("**第一步: 思维链（纯文本）**")
-        parts.append("简洁分析你的思考过程\n")
-        parts.append("**第二步: JSON决策数组**\n")
-        parts.append("```json")
-        parts.append("[")
+        # 3. 输出格式 - 动态生成
+        parts.append("# 输出格式\n\n")
+        parts.append("**第一步: 思维链（纯文本）**\n")
+        parts.append("简洁分析你的思考过程\n\n")
+        parts.append("**第二步: JSON决策数组**\n\n")
+        parts.append("```json\n[\n")
         parts.append(
             f'  {{"symbol": "BTCUSDT", "action": "open_short", "leverage": {btc_eth_leverage}, '
             f'"position_size_usd": {account_equity*5:.0f}, "stop_loss": 97000, "take_profit": 91000, '
-            f'"confidence": 85, "risk_usd": 300, "reasoning": "下跌趋势+MACD死叉"}},'
+            f'"confidence": 85, "risk_usd": 300, "reasoning": "下跌趋势+MACD死叉"}},\n'
         )
-        parts.append('  {"symbol": "ETHUSDT", "action": "close_long", "reasoning": "止盈离场"}')
-        parts.append("]")
-        parts.append("```\n")
-        parts.append("**字段说明**:")
-        parts.append("- `action`: open_long | open_short | close_long | close_short | hold | wait")
-        parts.append("- `confidence`: 0-100（开仓建议≥75）")
+        parts.append('  {"symbol": "ETHUSDT", "action": "close_long", "reasoning": "止盈离场"}\n')
+        parts.append("]\n```\n\n")
+        parts.append("**字段说明**:\n")
+        parts.append("- `action`: open_long | open_short | close_long | close_short | hold | wait\n")
+        parts.append("- `confidence`: 0-100（开仓建议≥75）\n")
         parts.append(
-            "- 开仓时必填: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd, reasoning\n"
+            "- 开仓时必填: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd, reasoning\n\n"
         )
-
-        # === 关键提醒 ===
-        parts.append("---\n")
-        parts.append("**记住**: ")
-        parts.append("- 目标是夏普比率，不是交易频率")
-        parts.append("- 做空 = 做多，都是赚钱工具")
-        parts.append("- 宁可错过，不做低质量交易")
-        parts.append("- 风险回报比1:3是底线")
 
         return "\n".join(parts)
 

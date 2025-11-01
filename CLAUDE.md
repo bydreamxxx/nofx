@@ -4,11 +4,34 @@
 
 ## 项目概述
 
-NOFX 是一个 AI 驱动的加密货币期货自动交易竞赛系统，支持多个交易所（Binance、Hyperliquid、Aster DEX）和多个 AI 模型（DeepSeek、Qwen 或自定义 OpenAI 兼容 API）。该系统具有通过历史性能反馈进行 AI 自我学习、多交易员竞赛模式以及专业的 React 监控仪表板等特性。
+NOFX 是一个 AI 驱动的加密货币期货自动交易竞赛系统，支持多个交易所（Binance、Hyperliquid、Aster DEX、OKX）和多个 AI 模型（DeepSeek、Qwen 或自定义 OpenAI 兼容 API）。该系统具有通过历史性能反馈进行 AI 自我学习、多交易员竞赛模式以及专业的 React 监控仪表板等特性。
+
+**⚠️ 重要：项目有两个完整实现**：
+- **Go 版本**（主目录）：生产就绪，性能优异，静态类型安全
+- **Python 版本**（`py/` 目录）：易于扩展，数据分析友好，AI/ML 集成方便
+
+两个版本共享相同的数据库（`nofx.db`）和 Web 前端（`web/`），功能完全一致。
+
+### 如何选择版本
+
+**选择 Go 版本，如果你**：
+- 需要最佳性能和低延迟
+- 偏好静态类型和编译时检查
+- 部署到生产环境
+- 不需要频繁修改核心逻辑
+
+**选择 Python 版本，如果你**：
+- 需要快速原型开发和迭代
+- 想要集成机器学习库（sklearn、pytorch 等）
+- 需要使用 pandas 进行数据分析
+- 熟悉 Python 生态系统
+- 想要添加自定义指标或策略
+
+**注意**：两个版本可以同时存在，但同时只能运行一个后端实例（共享同一个数据库）。
 
 ## 开发命令
 
-### 后端 (Go)
+### 后端 (Go 版本)
 
 ```bash
 # 构建后端
@@ -17,14 +40,37 @@ go build -o nofx
 # 运行后端（从项目根目录）
 ./nofx
 
-# 使用自定义配置运行
-./nofx path/to/config.json
+# 使用自定义数据库路径运行
+./nofx --db path/to/nofx.db
 
 # 安装依赖
 go mod download
 
 # 运行测试
 go test ./...
+```
+
+### 后端 (Python 版本)
+
+```bash
+# 创建 Conda 环境（推荐）
+conda create -n nofx python=3.11
+conda activate nofx
+
+# 安装 TA-Lib (必需)
+# macOS: brew install ta-lib
+# Ubuntu: sudo apt-get install libta-lib0-dev
+
+# 安装依赖
+cd py
+pip install -r requirements.txt
+
+# 运行后端（需要指定数据库路径）
+python main.py --db ../nofx.db
+
+# 或使用快速启动脚本
+./run.sh  # macOS/Linux
+run.bat   # Windows
 ```
 
 ### 前端 (React + TypeScript)
@@ -124,10 +170,16 @@ AutoTrader.Start() → [每隔 scan_interval_minutes]
 
 ### 交易所抽象层
 
-`Trader` 接口（trader/interface.go）为所有交易所提供统一的 API：
+**Go 版本** - `Trader` 接口（trader/interface.go）：
 - **Binance**：`FuturesTrader`（trader/binance_futures.go）- 使用 go-binance SDK
 - **Hyperliquid**：`HyperliquidTrader`（trader/hyperliquid_trader.go）- 使用 go-hyperliquid SDK，需要以太坊私钥
 - **Aster**：`AsterTrader`（trader/aster_trader.go）- Binance 兼容 API，使用 Web3 钱包认证
+
+**Python 版本** - `Trader` 抽象基类（py/trader/interface.py）：
+- **Binance**：`BinanceFuturesTrader`（py/trader/binance_futures.py）- 使用 binance-connector-python
+- **Hyperliquid**：`HyperliquidTrader`（py/trader/hyperliquid_trader.py）- 使用 hyperliquid-python SDK
+- **Aster**：`AsterTrader`（py/trader/aster_trader.py）- 使用 requests + eth_account
+- **OKX**：`OKXTrader`（py/trader/okx_trader.py）- 使用 ccxt 库
 
 所有交易所实现必须处理：
 - 持仓管理（开多/平多/开空/平空）
@@ -227,6 +279,121 @@ React 应用（web/src/）使用：
 - `ComparisonChart.tsx`：并排 AI 性能比较（基于时间戳分组）
 - `AILearning.tsx`：显示历史反馈和性能分析
 
+## Python 实现特定注意事项
+
+### 并发模型：Asyncio 简单化原则
+
+**关键原则**：保持简单！不要过度管理 asyncio 任务。
+
+**✅ 正确的做法**（py/api/server.py）：
+```python
+# 启动交易员 - 让 asyncio 自动管理任务
+async def run_trader_with_error_handling():
+    try:
+        await trader.run()
+    except Exception as e:
+        logger.error(f"交易员运行错误: {e}")
+
+# 创建后台任务（不保存引用）
+asyncio.create_task(run_trader_with_error_handling())
+
+# 停止交易员 - 只需设置标志
+def stop(self):
+    self.is_running = False  # 任务会自然结束
+```
+
+**❌ 错误的做法**（过度复杂）：
+```python
+# 不要这样做：手动跟踪和取消任务
+trader._background_tasks = []
+task = asyncio.create_task(trader.run())
+trader._background_tasks.append(task)  # 不需要！
+
+def stop(self):
+    for task in self._background_tasks:  # 不需要！
+        task.cancel()
+```
+
+**为什么简单更好**：
+- asyncio 会自动管理创建的任务
+- 使用 `is_running` 标志，任务循环会自然退出
+- 不需要手动取消任务，避免 CancelledError 异常处理
+- 代码更清晰，维护更容易
+
+### 数据库操作：用户隔离
+
+**关键变更**（v3.0.0+）：所有数据库方法现在都需要 `user_id` 参数进行用户隔离。
+
+**示例**（py/config/database.py）：
+```python
+# 旧版本（错误）：
+async def get_ai_models(self) -> List[Dict]:
+    cursor = await self.db.execute("SELECT * FROM ai_models")
+
+# 新版本（正确）：
+async def get_ai_models(self, user_id: str) -> List[Dict]:
+    cursor = await self.db.execute(
+        "SELECT * FROM ai_models WHERE user_id = ?",
+        (user_id,)
+    )
+```
+
+**所有需要 user_id 的方法**：
+- `get_ai_models(user_id)` - 获取用户的 AI 模型
+- `get_exchanges(user_id)` - 获取用户的交易所
+- `update_ai_model(user_id, ...)` - 更新 AI 模型配置
+- `update_exchange(user_id, ...)` - 更新交易所配置
+- `get_user_signal_source(user_id)` - 获取用户信号源
+
+### 认证系统
+
+**管理员模式绕过**（py/auth/__init__.py 和 py/api/middleware.py）：
+```python
+# 如果启用管理员模式，所有请求使用 "admin" 用户
+if auth.is_admin_mode():
+    return {"user_id": "admin", "email": "admin@localhost"}
+
+# 否则验证 JWT token
+token = authorization.split(" ")[1]
+user_data = auth.validate_jwt(token)
+```
+
+### 初始化默认数据
+
+**关键修复**（v3.0.0+）：`init_default_data()` 现在会插入默认 AI 模型和交易所。
+
+**必须包含**（py/config/database.py:161+）：
+```python
+async def init_default_data(self):
+    # 1. 初始化 AI 模型（user_id='default'）
+    ai_models = [
+        {"id": "deepseek", "name": "DeepSeek", "provider": "deepseek"},
+        {"id": "qwen", "name": "Qwen", "provider": "qwen"},
+    ]
+
+    # 2. 初始化交易所（user_id='default'）
+    exchanges = [
+        {"id": "binance", "name": "Binance Futures", "type": "binance"},
+        {"id": "hyperliquid", "name": "Hyperliquid", "type": "hyperliquid"},
+        {"id": "aster", "name": "Aster DEX", "type": "aster"},
+    ]
+
+    # 3. 初始化系统配置
+    # ...
+```
+
+**为什么重要**：前端的 `/api/supported-models` 端点依赖这些默认数据。如果缺失，前端将显示空列表。
+
+### FastAPI vs Gin 差异
+
+| 特性 | Go (Gin) | Python (FastAPI) |
+|------|----------|------------------|
+| 路由定义 | `router.GET("/api/status", handler)` | `@app.get("/api/status")` |
+| 请求参数 | `c.Query("trader_id")` | `trader_id: str = Query(...)` |
+| 依赖注入 | 手动传递 | `Depends(get_current_user)` |
+| 中间件 | `router.Use(middleware)` | `@app.middleware("http")` |
+| 错误处理 | `c.JSON(400, gin.H{"error": msg})` | `raise HTTPException(status_code=400)` |
+
 ## 重要技术约束
 
 ### 使用 symbol_side 键跟踪持仓
@@ -308,11 +475,19 @@ AI 必须返回符合此模式的有效 JSON：
 
 ### 添加新交易所
 
+**Go 版本**：
 1. 在新文件中实现 `Trader` 接口（例如 `trader/new_exchange.go`）
 2. 将交易所特定的配置字段添加到 `config.TraderConfig`
 3. 在 `config.Validate()` 中添加验证
 4. 在 `AutoTrader.NewAutoTrader()` 的 switch 语句中添加分支
 5. 更新 README.md 中的新交易所文档
+
+**Python 版本**：
+1. 在新文件中实现 `Trader` 抽象基类（例如 `py/trader/new_exchange.py`）
+2. 实现所有抽象方法：`open_long()`, `close_long()`, `open_short()`, `close_short()`, 等
+3. 在 `py/trader/auto_trader.py` 的交易所工厂函数中添加分支
+4. 在 `py/config/database.py` 的默认交易所列表中添加
+5. 更新 `py/README.md` 和 `EXCHANGES.md`
 
 ### 添加新 AI 提供商
 
@@ -337,17 +512,47 @@ AI 必须返回符合此模式的有效 JSON：
 
 ## 测试和调试
 
-### 后端测试
+### 后端测试（Go）
 
 ```bash
 # 使用详细日志运行
 LOG_LEVEL=debug ./nofx
 
 # 使用小资金测试
-# 编辑 config.json："initial_balance": 100.0
+# 通过 Web 界面创建交易员时设置："initial_balance": 100.0
 
-# 模拟运行模式（如果已实现）
-# 检查代码中的模拟运行标志
+# 运行单元测试
+go test ./...
+
+# 运行特定包的测试
+go test ./trader -v
+```
+
+### 后端测试（Python）
+
+```bash
+# 激活 Conda 环境
+conda activate nofx
+
+# 使用详细日志运行
+cd py
+python main.py --db ../nofx.db
+
+# 运行单元测试（如果存在）
+pytest tests/ -v
+
+# 测试特定模块
+python -m pytest tests/test_trader.py -v
+
+# 代码格式化
+black .
+
+# 类型检查
+mypy . --ignore-missing-imports
+
+# 快速测试 API 端点
+python test_api_config.py
+python test_trader_lifecycle.py
 ```
 
 ### 前端测试
@@ -357,7 +562,7 @@ cd web
 npm run dev
 
 # 访问 http://localhost:3000
-# 后端必须运行在 http://localhost:8080
+# 后端必须运行在 http://localhost:8080（Go）或 http://localhost:8081（Python）
 ```
 
 ### 决策日志分析
@@ -377,19 +582,41 @@ npm run dev
 
 **问题**："Precision is over the maximum defined for this asset"
 - **原因**：数量/价格未格式化为交易所精度
-- **修复**：确保在下单前调用 `Trader.FormatQuantity()`
+- **修复**：确保在下单前调用 `Trader.FormatQuantity()`（Go）或 `format_quantity()`（Python）
 
 **问题**：Binance 子账户杠杆错误
 - **原因**：配置中杠杆 >5x 但使用子账户
-- **修复**：设置 `leverage.btc_eth_leverage: 5` 和 `leverage.altcoin_leverage: 5`
+- **修复**：通过 Web 界面设置杠杆 ≤5x
 
 **问题**：AI 每个周期都返回"等待"
 - **原因**：没有候选币种，或所有币种被流动性过滤
-- **修复**：检查币种池 API，或启用 `use_default_coins: true`
+- **修复**：检查币种池配置，或使用默认币种
 
 **问题**：前端显示"无数据"
 - **原因**：后端未运行，或端口不匹配
-- **修复**：验证后端在 http://localhost:8080/health，检查 CORS
+- **修复**：验证后端在 http://localhost:8080/health（Go）或 http://localhost:8081/health（Python），检查 CORS
+
+**Python 特定问题**：
+
+**问题**：`ModuleNotFoundError: No module named 'bcrypt'`
+- **原因**：缺少认证依赖
+- **修复**：`conda run -n nofx pip install bcrypt pyjwt pyotp`
+
+**问题**：`ModuleNotFoundError: No module named 'pandas_ta'`
+- **原因**：技术指标库未安装
+- **修复**：`pip install pandas_ta`（Python版本使用pandas_ta，不需要TA-Lib C库）
+
+**问题**：`database is locked`
+- **原因**：Go 和 Python 版本同时访问数据库
+- **修复**：同时只运行一个后端实例
+
+**问题**：`/api/supported-models` 返回空数组
+- **原因**：数据库未初始化默认 AI 模型
+- **修复**：删除 `nofx.db` 重新启动，或检查 `init_default_data()` 实现
+
+**问题**：FastAPI 启动失败 "Address already in use"
+- **原因**：端口被占用（可能 Go 版本正在运行）
+- **修复**：停止其他后端实例，或修改 `.env` 中的 `API_PORT`
 
 ## 依赖项
 
@@ -400,6 +627,19 @@ npm run dev
 - `github.com/gin-gonic/gin` - HTTP API 框架
 - TA-Lib C 库（技术指标计算所需）
 
+### 后端 (Python)
+- `fastapi` + `uvicorn` - 异步 Web 框架和 ASGI 服务器
+- `aiosqlite` - 异步 SQLite 数据库
+- `binance-connector-python` - Binance API 客户端
+- `hyperliquid-python-sdk` - Hyperliquid DEX SDK
+- `ccxt` - 多交易所统一 API（用于 OKX）
+- `eth-account` - 以太坊账户管理（用于 Aster/Hyperliquid）
+- `pandas_ta` - 技术指标计算库（Python纯实现，无需C库依赖）
+- `pandas` + `numpy` - 数据处理
+- `bcrypt` + `pyjwt` + `pyotp` - 认证和安全
+- `aiohttp` - 异步 HTTP 客户端
+- `python-dateutil` - 日期时间解析
+
 ### 前端 (React)
 - `react` + `react-dom` - UI 框架
 - `recharts` - 图表库
@@ -407,7 +647,9 @@ npm run dev
 - `tailwindcss` - 实用优先的 CSS
 - `date-fns` - 日期格式化
 
-### 安装 TA-Lib
+### 技术指标库说明
+
+**Go 版本**：使用 TA-Lib C 库（需要系统安装）
 
 **macOS**：
 ```bash
@@ -428,6 +670,16 @@ cd ta-lib/
 make
 sudo make install
 ```
+
+**Python 版本**：使用 pandas_ta（纯Python实现）
+
+✅ **优势**：
+- 无需安装系统C库，避免编译问题
+- 跨平台兼容性更好
+- 安装简单：`pip install pandas_ta`
+- 与pandas数据流无缝集成
+
+**注意**：Python版本不需要安装TA-Lib C库，`pip install`会自动安装所有依赖。
 
 ## 版本历史注释
 
