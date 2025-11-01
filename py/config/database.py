@@ -193,9 +193,10 @@ class Database:
 
         # 初始化交易所（使用default用户）
         exchanges = [
-            {"id": "binance", "name": "Binance Futures", "type": "binance"},
-            {"id": "hyperliquid", "name": "Hyperliquid", "type": "hyperliquid"},
-            {"id": "aster", "name": "Aster DEX", "type": "aster"},
+            {"id": "binance", "name": "Binance Futures", "type": "cex"},
+            {"id": "hyperliquid", "name": "Hyperliquid", "type": "dex"},
+            {"id": "aster", "name": "Aster DEX", "type": "dex"},
+            {"id": "okx", "name": "Okx Futures", "type": "cex"},
         ]
 
         for exchange in exchanges:
@@ -453,7 +454,8 @@ class Database:
                 name_map = {
                     "binance": ("Binance", "cex"),
                     "hyperliquid": ("Hyperliquid", "dex"),
-                    "aster": ("Aster DEX", "dex")
+                    "aster": ("Aster DEX", "dex"),
+                    "okx": ("Okx", "cex")
                 }
                 name, typ = name_map.get(exchange_id, (exchange_id.capitalize(), "cex"))
 
