@@ -25,7 +25,24 @@ class Database:
     async def close(self):
         """关闭数据库连接"""
         if self.db:
-            await self.db.close()
+            try:
+                # 提交任何未完成的事务
+                await self.db.commit()
+            except Exception:
+                pass
+
+            try:
+                # 关闭连接
+                await self.db.close()
+            except RuntimeError:
+                # 忽略 "Event loop is closed" 错误
+                # 这在程序退出时是正常的
+                pass
+            except Exception:
+                # 忽略其他关闭错误
+                pass
+            finally:
+                self.db = None
 
     async def create_tables(self):
         """创建数据库表"""
@@ -44,7 +61,7 @@ class Database:
             )""",
 
             # 交易所配置表
-            """CREATE TABLE exchanges_new (
+            """CREATE TABLE exchanges (
 			id TEXT NOT NULL,
 			user_id TEXT NOT NULL DEFAULT 'default',
 			name TEXT NOT NULL,

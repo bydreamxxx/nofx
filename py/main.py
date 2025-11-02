@@ -153,7 +153,12 @@ async def main():
         logger.success("✓ 所有交易员已停止")
 
         # 关闭数据库连接
+        logger.info("📊 正在关闭数据库连接...")
         await database.close()
+
+        # 给 aiosqlite 后台线程一点时间清理
+        await asyncio.sleep(0.1)
+
         logger.success("✓ 数据库连接已关闭")
 
 
