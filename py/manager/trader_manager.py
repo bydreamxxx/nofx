@@ -275,8 +275,7 @@ class TraderManager:
         # 锁保护：检查是否已存在
         async with self._lock:
             if trader_id in self.traders:
-                logger.info(f"⚠️ 交易员 {trader_cfg['name']} 已经加载，跳过")
-                return  # 跳过已存在的交易员，不抛出异常
+                raise ValueError(f"trader ID '{trader_id}' 已存在")
 
         # 处理交易币种列表
         trading_coins = []
