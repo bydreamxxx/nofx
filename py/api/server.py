@@ -82,8 +82,8 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
         异常:
             HTTPException 404 - 没有可用的trader
         """
-        # 确保用户的交易员已加载到内存中
-        await trader_manager.load_traders_from_database(database)
+        # 确保用户的交易员已加载到内存中（只加载该用户的交易员，而不是所有用户的）
+        await trader_manager.load_user_traders(database, user_id)
 
         if trader_id:
             # 验证trader属于当前用户
@@ -377,10 +377,10 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             if not trader:
                 raise HTTPException(status_code=404, detail=f"交易员 {trader_id} 不存在")
 
-            # 使用 get_performance_analysis 而不是 get_statistics
-            performance = await trader.decision_logger.get_performance_analysis(100)
+            # 使用 get_statistics 获取基础统计
+            statistics = await trader.decision_logger.get_statistics()
 
-            return performance
+            return statistics
 
         except HTTPException:
             raise
@@ -446,20 +446,37 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             raise HTTPException(status_code=500, detail=str(e))
 
     # === 用户认证端点（无需认证）===
+    # 定义认证相关请求模型
+    class RegisterRequest(BaseModel):
+        email: str
+        password: str
+
+    class CompleteRegistrationRequest(BaseModel):
+        user_id: str
+        otp_code: str
+
+    class LoginRequest(BaseModel):
+        email: str
+        password: str
+
+    class VerifyOTPRequest(BaseModel):
+        user_id: str
+        otp_code: str
+
     @app.post("/api/register")
-    async def register_user(email: str, password: str):
+    async def register_user(request_body: RegisterRequest):
         """用户注册"""
         try:
             # 检查邮箱是否已存在
             try:
-                existing_user = await database.get_user_by_email(email)
+                existing_user = await database.get_user_by_email(request_body.email)
                 if existing_user:
                     raise HTTPException(status_code=409, detail="邮箱已被注册")
             except:
                 pass  # 用户不存在，可以继续注册
 
             # 生成密码哈希
-            password_hash = auth.hash_password(password)
+            password_hash = auth.hash_password(request_body.password)
 
             # 生成OTP密钥
             otp_secret = auth.generate_otp_secret()
@@ -469,17 +486,17 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             user_id = str(uuid.uuid4())
             await database.create_user(
                 user_id=user_id,
-                email=email,
+                email=request_body.email,
                 password_hash=password_hash,
                 otp_secret=otp_secret,
                 otp_verified=False
             )
 
             # 返回OTP设置信息
-            qr_code_url = auth.get_otp_qr_code_url(otp_secret, email)
+            qr_code_url = auth.get_otp_qr_code_url(otp_secret, request_body.email)
             return {
                 "user_id": user_id,
-                "email": email,
+                "email": request_body.email,
                 "otp_secret": otp_secret,
                 "qr_code_url": qr_code_url,
                 "message": "请使用Google Authenticator扫描二维码并验证OTP"
@@ -492,20 +509,20 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.post("/api/complete-registration")
-    async def complete_registration(user_id: str, otp_code: str):
+    async def complete_registration(request_body: CompleteRegistrationRequest):
         """完成注册（验证OTP）"""
         try:
             # 获取用户信息
-            user = await database.get_user_by_id(user_id)
+            user = await database.get_user_by_id(request_body.user_id)
             if not user:
                 raise HTTPException(status_code=404, detail="用户不存在")
 
             # 验证OTP
-            if not auth.verify_otp(user["otp_secret"], otp_code):
+            if not auth.verify_otp(user["otp_secret"], request_body.otp_code):
                 raise HTTPException(status_code=400, detail="OTP验证码错误")
 
             # 更新用户OTP验证状态
-            await database.update_user_otp_verified(user_id, True)
+            await database.update_user_otp_verified(request_body.user_id, True)
 
             # 生成JWT token
             token = auth.generate_jwt(user["id"], user["email"])
@@ -526,16 +543,16 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.post("/api/login")
-    async def login_user(email: str, password: str):
+    async def login_user(request_body: LoginRequest):
         """用户登录"""
         try:
             # 获取用户信息
-            user = await database.get_user_by_email(email)
+            user = await database.get_user_by_email(request_body.email)
             if not user:
                 raise HTTPException(status_code=401, detail="邮箱或密码错误")
 
             # 验证密码
-            if not auth.check_password(password, user["password_hash"]):
+            if not auth.check_password(request_body.password, user["password_hash"]):
                 raise HTTPException(status_code=401, detail="邮箱或密码错误")
 
             # 检查OTP是否已验证
@@ -561,16 +578,16 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.post("/api/verify-otp")
-    async def verify_otp_login(user_id: str, otp_code: str):
+    async def verify_otp_login(request_body: VerifyOTPRequest):
         """验证OTP并完成登录"""
         try:
             # 获取用户信息
-            user = await database.get_user_by_id(user_id)
+            user = await database.get_user_by_id(request_body.user_id)
             if not user:
                 raise HTTPException(status_code=404, detail="用户不存在")
 
             # 验证OTP
-            if not auth.verify_otp(user["otp_secret"], otp_code):
+            if not auth.verify_otp(user["otp_secret"], request_body.otp_code):
                 raise HTTPException(status_code=400, detail="验证码错误")
 
             # 生成JWT token
@@ -722,18 +739,26 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
                 "oi_top_url": ""
             }
 
+    # 定义信号源配置请求模型
+    class SignalSourceRequest(BaseModel):
+        coin_pool_url: str = ""
+        oi_top_url: str = ""
+
     @app.post("/api/user/signal-sources")
     async def save_user_signal_source(
-        coin_pool_url: str = "",
-        oi_top_url: str = "",
+        request_body: SignalSourceRequest,
         current_user: Dict = Depends(get_current_user)
     ):
         """保存用户信号源配置"""
         try:
             user_id = current_user["user_id"]
-            await database.create_user_signal_source(user_id, coin_pool_url, oi_top_url)
+            await database.create_user_signal_source(
+                user_id,
+                request_body.coin_pool_url,
+                request_body.oi_top_url
+            )
 
-            logger.info(f"✅ 用户信号源配置已保存: user={user_id}, coin_pool={coin_pool_url}, oi_top={oi_top_url}")
+            logger.info(f"✅ 用户信号源配置已保存: user={user_id}, coin_pool={request_body.coin_pool_url}, oi_top={request_body.oi_top_url}")
             return {"message": "用户信号源配置已保存"}
         except Exception as e:
             logger.error(f"保存用户信号源配置失败: {e}")
@@ -822,21 +847,25 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             logger.error(f"获取交易员配置失败: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+    # 定义创建交易员请求模型（在函数外部定义）
+    class CreateTraderRequestModel(BaseModel):
+        name: str
+        ai_model_id: str
+        exchange_id: str
+        initial_balance: float = 1000.0
+        btc_eth_leverage: int = 5
+        altcoin_leverage: int = 5
+        trading_symbols: str = ""
+        system_prompt_template: str = "default"
+        custom_prompt: str = ""
+        override_base_prompt: bool = False
+        is_cross_margin: bool = True
+        use_coin_pool: bool = False
+        use_oi_top: bool = False
+
     @app.post("/api/traders")
     async def create_trader(
-        name: str,
-        ai_model_id: str,
-        exchange_id: str,
-        initial_balance: float = 1000.0,
-        btc_eth_leverage: int = 5,
-        altcoin_leverage: int = 5,
-        trading_symbols: str = "",
-        system_prompt_template: str = "default",
-        custom_prompt: str = "",
-        override_base_prompt: bool = False,
-        is_cross_margin: bool = True,
-        use_coin_pool: bool = False,
-        use_oi_top: bool = False,
+        request_body: CreateTraderRequestModel,
         current_user: Dict = Depends(get_current_user)
     ):
         """创建新的AI交易员"""
@@ -845,41 +874,99 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
 
             # 生成交易员ID
             import time
-            trader_id = f"{exchange_id}_{ai_model_id}_{int(time.time())}"
+            trader_id = f"{request_body.exchange_id}_{request_body.ai_model_id}_{int(time.time())}"
 
             # 创建交易员记录
             await database.create_trader(
                 trader_id=trader_id,
                 user_id=user_id,
-                name=name,
-                ai_model_id=ai_model_id,
-                exchange_id=exchange_id,
-                initial_balance=initial_balance,
-                btc_eth_leverage=btc_eth_leverage,
-                altcoin_leverage=altcoin_leverage,
-                trading_symbols=trading_symbols,
-                system_prompt_template=system_prompt_template,
-                custom_prompt=custom_prompt,
-                override_base_prompt=override_base_prompt,
-                is_cross_margin=is_cross_margin,
-                use_coin_pool=use_coin_pool,
-                use_oi_top=use_oi_top
+                name=request_body.name,
+                ai_model_id=request_body.ai_model_id,
+                exchange_id=request_body.exchange_id,
+                initial_balance=request_body.initial_balance,
+                btc_eth_leverage=request_body.btc_eth_leverage,
+                altcoin_leverage=request_body.altcoin_leverage,
+                trading_symbols=request_body.trading_symbols,
+                system_prompt_template=request_body.system_prompt_template,
+                custom_prompt=request_body.custom_prompt,
+                override_base_prompt=request_body.override_base_prompt,
+                is_cross_margin=request_body.is_cross_margin,
+                use_coin_pool=request_body.use_coin_pool,
+                use_oi_top=request_body.use_oi_top
             )
 
             # 加载到内存
             await trader_manager.load_traders_from_database(database)
 
-            logger.info(f"✅ 创建交易员成功: {name} (模型: {ai_model_id}, 交易所: {exchange_id})")
+            logger.info(f"✅ 创建交易员成功: {request_body.name} (模型: {request_body.ai_model_id}, 交易所: {request_body.exchange_id})")
 
             return {
                 "trader_id": trader_id,
-                "trader_name": name,
-                "ai_model": ai_model_id,
+                "trader_name": request_body.name,
+                "ai_model": request_body.ai_model_id,
                 "is_running": False
             }
 
         except Exception as e:
             logger.error(f"创建交易员失败: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.put("/api/traders/{trader_id}")
+    async def update_trader(
+        trader_id: str,
+        request_body: CreateTraderRequestModel,
+        current_user: Dict = Depends(get_current_user)
+    ):
+        """更新交易员配置"""
+        try:
+            user_id = current_user["user_id"]
+
+            # 检查交易员是否存在且属于当前用户
+            traders = await database.get_traders(user_id)
+            existing_trader = None
+            for trader in traders:
+                if trader["id"] == trader_id:
+                    existing_trader = trader
+                    break
+
+            if not existing_trader:
+                raise HTTPException(status_code=404, detail="交易员不存在")
+
+            # 更新交易员配置
+            await database.update_trader(
+                user_id=user_id,
+                trader_id=trader_id,
+                name=request_body.name,
+                ai_model_id=request_body.ai_model_id,
+                exchange_id=request_body.exchange_id,
+                initial_balance=request_body.initial_balance,
+                btc_eth_leverage=request_body.btc_eth_leverage,
+                altcoin_leverage=request_body.altcoin_leverage,
+                trading_symbols=request_body.trading_symbols,
+                system_prompt_template=request_body.system_prompt_template,
+                custom_prompt=request_body.custom_prompt,
+                override_base_prompt=request_body.override_base_prompt,
+                is_cross_margin=request_body.is_cross_margin,
+                use_coin_pool=request_body.use_coin_pool,
+                use_oi_top=request_body.use_oi_top
+            )
+
+            # 重新加载交易员到内存
+            await trader_manager.load_traders_from_database(database)
+
+            logger.info(f"✅ 更新交易员成功: {request_body.name} (模型: {request_body.ai_model_id}, 交易所: {request_body.exchange_id})")
+
+            return {
+                "trader_id": trader_id,
+                "trader_name": request_body.name,
+                "ai_model": request_body.ai_model_id,
+                "message": "交易员更新成功"
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"更新交易员失败: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.delete("/api/traders/{trader_id}")
@@ -990,6 +1077,97 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             raise
         except Exception as e:
             logger.error(f"停止交易员失败: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # 定义更新提示词请求模型
+    class UpdatePromptRequest(BaseModel):
+        custom_prompt: str
+        override_base_prompt: bool = False
+
+    @app.put("/api/traders/{trader_id}/prompt")
+    async def update_trader_prompt(
+        trader_id: str,
+        request_body: UpdatePromptRequest,
+        current_user: Dict = Depends(get_current_user)
+    ):
+        """更新交易员自定义提示词"""
+        try:
+            user_id = current_user["user_id"]
+
+            # 验证trader属于当前用户
+            await get_trader_from_query(user_id, trader_id)
+
+            # 更新数据库
+            await database.update_trader_custom_prompt(
+                user_id, trader_id, request_body.custom_prompt, request_body.override_base_prompt
+            )
+
+            # 如果trader在内存中，更新其custom prompt和override设置
+            trader = await trader_manager.get_trader(trader_id)
+            if trader:
+                trader.set_custom_prompt(request_body.custom_prompt)
+                trader.set_override_base_prompt(request_body.override_base_prompt)
+                logger.info(f"✓ 已更新交易员 {trader.get_name()} 的自定义prompt (覆盖基础={request_body.override_base_prompt})")
+
+            return {"message": "自定义prompt已更新"}
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"更新自定义prompt失败: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get("/api/decisions")
+    async def get_decisions(
+        trader_id: str,
+        limit: int = 100,
+        current_user: Dict = Depends(get_current_user)
+    ):
+        """获取所有决策记录"""
+        try:
+            user_id = current_user["user_id"]
+            _, trader_id = await get_trader_from_query(user_id, trader_id)
+
+            trader = await trader_manager.get_trader(trader_id)
+            if not trader:
+                raise HTTPException(status_code=404, detail=f"交易员 {trader_id} 不存在")
+
+            records = await trader.decision_logger.get_latest_records(limit)
+
+            # 反转数组，让最新的在前面
+            records.reverse()
+
+            return records
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"获取决策记录失败: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get("/api/performance")
+    async def get_performance(
+        trader_id: str,
+        current_user: Dict = Depends(get_current_user)
+    ):
+        """获取AI学习性能分析"""
+        try:
+            user_id = current_user["user_id"]
+            _, trader_id = await get_trader_from_query(user_id, trader_id)
+
+            trader = await trader_manager.get_trader(trader_id)
+            if not trader:
+                raise HTTPException(status_code=404, detail=f"交易员 {trader_id} 不存在")
+
+            # 使用 analyze_performance（不是 get_performance_analysis）
+            performance = await trader.decision_logger.analyze_performance(100)
+
+            return performance
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"获取性能分析失败: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.post("/api/traders/{trader_id}/close-all-positions")

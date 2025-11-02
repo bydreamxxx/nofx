@@ -206,7 +206,7 @@ class AutoTrader:
                 f"🤖 [{self.name}] 使用自定义AI API: {self.config.custom_api_url} (模型: {self.config.custom_model_name})"
             )
         elif self.ai_model == "openrouter":
-            self.mcp_client.set_openrouter_api_key(self.config.openrouter_key, model=self.config.custom_model_name)
+            self.mcp_client.set_openrouter_api_key(self.config.openrouter_key, custom_model=self.config.custom_model_name)
             logger.info(f"🤖 [{self.name}] 使用OpenRouter AI (模型: {self.config.custom_model_name})")
         elif self.ai_model == "qwen":
             self.mcp_client.set_qwen_api_key(

@@ -139,6 +139,121 @@ class TraderManager:
 
         logger.info(f"✓ 成功加载 {len(self.traders)} 个交易员到内存")
 
+    async def load_user_traders(self, database: Database, user_id: str) -> None:
+        """
+        从数据库加载指定用户的交易员到内存（用于API请求）
+
+        Args:
+            database: 数据库实例
+            user_id: 用户ID
+        """
+        # 获取指定用户的所有交易员
+        traders = await database.get_traders(user_id)
+        logger.debug(f"📋 为用户 {user_id} 加载交易员配置: {len(traders)} 个")
+
+        # 获取系统配置
+        coin_pool_url = await database.get_system_config("coin_pool_api_url")
+        oi_top_url = await database.get_system_config("oi_top_api_url")
+        use_default_coins_str = await database.get_system_config("use_default_coins")
+        max_daily_loss_str = await database.get_system_config("max_daily_loss")
+        max_drawdown_str = await database.get_system_config("max_drawdown")
+        stop_trading_minutes_str = await database.get_system_config("stop_trading_minutes")
+        btc_eth_leverage_str = await database.get_system_config("btc_eth_leverage")
+        altcoin_leverage_str = await database.get_system_config("altcoin_leverage")
+
+        # 解析配置
+        use_default_coins = use_default_coins_str == "true"
+        max_daily_loss = float(max_daily_loss_str) if max_daily_loss_str else 10.0
+        max_drawdown = float(max_drawdown_str) if max_drawdown_str else 20.0
+        stop_trading_minutes = int(stop_trading_minutes_str) if stop_trading_minutes_str else 60
+        btc_eth_leverage = int(btc_eth_leverage_str) if btc_eth_leverage_str else 5
+        altcoin_leverage = int(altcoin_leverage_str) if altcoin_leverage_str else 5
+
+        # 获取默认币种列表
+        default_coins_str = await database.get_system_config("default_coins")
+        default_coins = []
+        if default_coins_str:
+            import json
+            try:
+                default_coins = json.loads(default_coins_str)
+            except json.JSONDecodeError:
+                logger.warning(f"⚠️ 解析 default_coins 失败，使用空列表")
+                default_coins = []
+
+        # 获取用户信号源配置
+        try:
+            signal_source = await database.get_user_signal_source(user_id)
+            if signal_source:
+                coin_pool_url = signal_source.get("coin_pool_url", "")
+                oi_top_url = signal_source.get("oi_top_url", "")
+                logger.debug(f"📡 加载用户 {user_id} 的信号源配置: COIN POOL={coin_pool_url}, OI TOP={oi_top_url}")
+        except:
+            logger.debug(f"🔍 用户 {user_id} 暂未配置信号源")
+
+        # 为每个交易员获取AI模型和交易所配置
+        for trader_cfg in traders:
+            # 检查是否已经加载过这个交易员
+            async with self._lock:
+                if trader_cfg["id"] in self.traders:
+                    logger.debug(f"⚠️ 交易员 {trader_cfg['name']} 已经加载，跳过")
+                    continue
+
+            if not trader_cfg.get("enabled", True):
+                logger.debug(f"⏭️  交易员 {trader_cfg['name']} 未启用，跳过")
+                continue
+
+            # 获取AI模型配置
+            ai_models = await database.get_ai_models(user_id)
+            ai_model_cfg = None
+            for model in ai_models:
+                if model["id"] == trader_cfg["ai_model_id"]:
+                    ai_model_cfg = model
+                    break
+
+            if not ai_model_cfg:
+                logger.warning(f"⚠️  交易员 {trader_cfg['name']} 的AI模型 {trader_cfg['ai_model_id']} 不存在，跳过")
+                continue
+
+            if not ai_model_cfg.get("enabled", True):
+                logger.warning(f"⚠️  交易员 {trader_cfg['name']} 的AI模型 {ai_model_cfg['name']} 未启用，跳过")
+                continue
+
+            # 获取交易所配置
+            exchanges = await database.get_exchanges(user_id)
+            exchange_cfg = None
+            for exchange in exchanges:
+                if exchange["id"] == trader_cfg["exchange_id"]:
+                    exchange_cfg = exchange
+                    break
+
+            if not exchange_cfg:
+                logger.warning(f"⚠️  交易员 {trader_cfg['name']} 的交易所 {trader_cfg['exchange_id']} 不存在，跳过")
+                continue
+
+            if not exchange_cfg.get("enabled", True):
+                logger.warning(f"⚠️  交易员 {trader_cfg['name']} 的交易所 {exchange_cfg['name']} 未启用，跳过")
+                continue
+
+            # 添加到TraderManager
+            try:
+                await self._add_trader_from_db(
+                    trader_cfg=trader_cfg,
+                    ai_model_cfg=ai_model_cfg,
+                    exchange_cfg=exchange_cfg,
+                    coin_pool_url=coin_pool_url,
+                    oi_top_url=oi_top_url,
+                    use_default_coins=use_default_coins,
+                    max_daily_loss=max_daily_loss,
+                    max_drawdown=max_drawdown,
+                    stop_trading_hours=stop_trading_minutes / 60,
+                    btc_eth_leverage=btc_eth_leverage,
+                    altcoin_leverage=altcoin_leverage,
+                    default_coins=default_coins,
+                )
+            except Exception as e:
+                logger.error(f"❌ 添加交易员 {trader_cfg['name']} 失败: {e}")
+                continue
+
     async def _add_trader_from_db(
         self,
         trader_cfg: Dict[str, Any],
@@ -160,7 +275,8 @@ class TraderManager:
         # 锁保护：检查是否已存在
         async with self._lock:
             if trader_id in self.traders:
-                raise ValueError(f"trader ID '{trader_id}' 已存在")
+                logger.info(f"⚠️ 交易员 {trader_cfg['name']} 已经加载，跳过")
+                return  # 跳过已存在的交易员，不抛出异常
 
         # 处理交易币种列表
         trading_coins = []
@@ -196,7 +312,7 @@ class TraderManager:
             id=trader_id,
             name=trader_cfg["name"],
             ai_model=ai_model_cfg["provider"],
-            exchange=exchange_cfg["type"],
+            exchange=exchange_cfg["id"],
             scan_interval_minutes=trader_cfg["scan_interval_minutes"],
             initial_balance=trader_cfg["initial_balance"],
             btc_eth_leverage=btc_eth_leverage,
@@ -217,18 +333,19 @@ class TraderManager:
         )
 
         # 根据交易所类型设置API密钥
-        if exchange_cfg["type"] == "binance":
+        if exchange_cfg["id"] == "binance":
             config.binance_api_key = exchange_cfg["api_key"]
             config.binance_secret_key = exchange_cfg["secret_key"]
-        elif exchange_cfg["type"] == "hyperliquid":
+            config.testnet = exchange_cfg.get("testnet", False)
+        elif exchange_cfg["id"] == "hyperliquid":
             config.hyperliquid_private_key = exchange_cfg.get("private_key", "")
             config.hyperliquid_wallet_address = exchange_cfg.get("wallet_address", "")
             config.testnet = exchange_cfg.get("testnet", False)
-        elif exchange_cfg["type"] == "aster":
+        elif exchange_cfg["id"] == "aster":
             config.aster_private_key = exchange_cfg.get("private_key", "")
             config.aster_wallet_address = exchange_cfg.get("wallet_address", "")
             config.testnet = exchange_cfg.get("testnet", False)
-        elif exchange_cfg["type"] == "okx":
+        elif exchange_cfg["id"] == "okx":
             config.okx_api_key = exchange_cfg.get("api_key", "")
             config.okx_api_secret = exchange_cfg.get("secret_key", "")
             config.okx_passphrase = exchange_cfg.get("passphrase", "")

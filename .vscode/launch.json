@@ -1,0 +1,61 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Debug NOFX Main",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/py/main.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}/py",
+      "args": [
+        "--db",
+        "../nofx.db"
+      ],
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/py"
+      },
+      "justMyCode": true
+    },
+    {
+      "name": "Python: Debug NOFX Main (Custom DB)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/py/main.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}/py",
+      "args": [
+        "--db",
+        "${input:dbPath}"
+      ],
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/py"
+      },
+      "justMyCode": true
+    },
+    {
+      "name": "Python: Debug NOFX Main (All Code)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/py/main.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}/py",
+      "args": [
+        "--db",
+        "../nofx.db"
+      ],
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/py"
+      },
+      "justMyCode": false
+    }
+  ],
+  "inputs": [
+    {
+      "id": "dbPath",
+      "type": "promptString",
+      "description": "数据库文件路径",
+      "default": "../nofx.db"
+    }
+  ]
+}

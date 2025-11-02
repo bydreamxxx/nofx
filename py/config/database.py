@@ -362,11 +362,60 @@ class Database:
         await self.db.commit()
         return trader_id
 
+    async def update_trader(
+        self,
+        user_id: str,
+        trader_id: str,
+        name: str,
+        ai_model_id: str,
+        exchange_id: str,
+        initial_balance: float,
+        btc_eth_leverage: int = 5,
+        altcoin_leverage: int = 5,
+        trading_symbols: str = "",
+        system_prompt_template: str = "default",
+        custom_prompt: str = "",
+        override_base_prompt: bool = False,
+        is_cross_margin: bool = True,
+        use_coin_pool: bool = False,
+        use_oi_top: bool = False,
+    ):
+        """更新交易员配置"""
+        await self.db.execute(
+            """UPDATE traders SET
+               name = ?, ai_model_id = ?, exchange_id = ?, initial_balance = ?,
+               btc_eth_leverage = ?, altcoin_leverage = ?,
+               trading_symbols = ?, custom_prompt = ?, override_base_prompt = ?,
+               system_prompt_template = ?, is_cross_margin = ?,
+               use_coin_pool = ?, use_oi_top = ?,
+               updated_at = CURRENT_TIMESTAMP
+               WHERE id = ? AND user_id = ?""",
+            (
+                name, ai_model_id, exchange_id, initial_balance,
+                btc_eth_leverage, altcoin_leverage,
+                trading_symbols, custom_prompt, override_base_prompt,
+                system_prompt_template, is_cross_margin,
+                use_coin_pool, use_oi_top,
+                trader_id, user_id
+            )
+        )
+        await self.db.commit()
+
     async def update_trader_status(self, user_id: str, trader_id: str, is_running: bool):
         """更新交易员运行状态"""
         await self.db.execute(
             "UPDATE traders SET is_running = ? WHERE id = ? AND user_id = ?",
             (is_running, trader_id, user_id)
+        )
+        await self.db.commit()
+
+    async def update_trader_custom_prompt(
+        self, user_id: str, trader_id: str, custom_prompt: str, override_base_prompt: bool
+    ):
+        """更新交易员自定义提示词"""
+        await self.db.execute(
+            "UPDATE traders SET custom_prompt = ?, override_base_prompt = ? WHERE id = ? AND user_id = ?",
+            (custom_prompt, override_base_prompt, trader_id, user_id)
         )
         await self.db.commit()
 
