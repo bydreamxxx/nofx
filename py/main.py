@@ -159,10 +159,6 @@ async def main():
         # 关闭数据库连接
         logger.info("📊 正在关闭数据库连接...")
         await database.close()
-
-        # 给 aiosqlite 后台线程一点时间清理
-        await asyncio.sleep(0.1)
-
         logger.success("✓ 数据库连接已关闭")
 
 
@@ -182,7 +178,9 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
+        # 抑制 KeyboardInterrupt 的 traceback
         logger.info("\n👋 程序已退出")
+        sys.exit(0)
     except Exception as e:
         logger.error(f"❌ 程序异常退出: {e}")
         sys.exit(1)

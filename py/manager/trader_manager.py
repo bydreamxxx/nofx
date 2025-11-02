@@ -302,16 +302,30 @@ class TraderManager:
         for trader_id, trader in traders_copy.items():
             try:
                 trader.stop()
-                logger.info(f"✅ 交易员 {trader.name} 已停止")
+                logger.info(f"✅ 交易员 {trader.name} 停止信号已发送")
             except Exception as e:
                 logger.error(f"❌ 停止交易员 {trader.name} 失败: {e}")
 
-        # 锁保护：读取和清空 trader_tasks
+        # 锁保护：读取和等待任务完成
         async with self._lock:
             if self.trader_tasks:
                 tasks = list(self.trader_tasks.values())
-                await asyncio.gather(*tasks, return_exceptions=True)
-                self.trader_tasks.clear()
+
+        # 在锁外等待任务完成（避免长时间持有锁）
+        if tasks:
+            logger.debug(f"⏳ 等待 {len(tasks)} 个交易员任务完成...")
+            _, pending = await asyncio.wait(tasks, timeout=10.0)
+
+            if pending:
+                logger.warning(f"⚠️ {len(pending)} 个任务未能在 10 秒内停止，强制取消")
+                for task in pending:
+                    task.cancel()
+                # 等待取消完成
+                await asyncio.gather(*pending, return_exceptions=True)
+
+        # 清空任务字典
+        async with self._lock:
+            self.trader_tasks.clear()
 
         logger.info("✓ 所有交易员已停止")
 
