@@ -6,6 +6,7 @@ FastAPI REST API 服务器
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 from loguru import logger
 import json
@@ -14,6 +15,39 @@ from manager import TraderManager
 from config import Database
 from .middleware import get_current_user
 import auth
+
+
+# === Pydantic 响应模型（自动处理 snake_case → camelCase 转换）===
+class AIModelResponse(BaseModel):
+    """AI模型响应模型"""
+    id: str
+    user_id: str
+    name: str
+    provider: str
+    enabled: bool
+    api_key: str = Field(serialization_alias="apiKey")  # 接收 api_key，序列化时转为 apiKey
+    custom_api_url: str = Field(default="", serialization_alias="customApiUrl")
+    custom_model_name: str = Field(default="", serialization_alias="customModelName")
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ExchangeResponse(BaseModel):
+    """交易所响应模型"""
+    id: str
+    user_id: str
+    name: str
+    type: str
+    enabled: bool
+    api_key: str = Field(default="", serialization_alias="apiKey")
+    secret_key: str = Field(default="", serialization_alias="secretKey")
+    testnet: bool = False
+    hyperliquid_wallet_addr: str = Field(default="", serialization_alias="hyperliquidWalletAddr")
+    aster_user: str = Field(default="", serialization_alias="asterUser")
+    aster_signer: str = Field(default="", serialization_alias="asterSigner")
+    aster_private_key: str = Field(default="", serialization_alias="asterPrivateKey")
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 def create_app(trader_manager: TraderManager, database: Database = None) -> FastAPI:
@@ -66,7 +100,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             return trader_manager, traders[0]["id"]
 
     # === 健康检查端点（无需认证）===
-    @app.get("/health")
+    @app.get("/api/health")
     async def health_check():
         """健康检查"""
         return {"status": "ok", "service": "nofx-trading-system"}
@@ -558,34 +592,37 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             raise HTTPException(status_code=500, detail=str(e))
 
     # === 支持的模型和交易所（无需认证）===
-    @app.get("/api/supported-models")
+    @app.get("/api/supported-models", response_model=List[AIModelResponse])
     async def get_supported_models():
         """获取系统支持的AI模型列表"""
         try:
             models = await database.get_ai_models("default")
-            return models
+            # Pydantic 会自动将 api_key 转换为 apiKey（通过 Field alias）
+            return [AIModelResponse(**model) for model in models]
         except Exception as e:
             logger.error(f"获取支持的AI模型失败: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    @app.get("/api/supported-exchanges")
+    @app.get("/api/supported-exchanges", response_model=List[ExchangeResponse])
     async def get_supported_exchanges():
         """获取系统支持的交易所列表"""
         try:
             exchanges = await database.get_exchanges("default")
-            return exchanges
+            # Pydantic 会自动将 api_key 转换为 apiKey（通过 Field alias）
+            return [ExchangeResponse(**exchange) for exchange in exchanges]
         except Exception as e:
             logger.error(f"获取支持的交易所失败: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     # === AI模型和交易所配置端点（需要认证）===
-    @app.get("/api/models")
+    @app.get("/api/models", response_model=List[AIModelResponse])
     async def get_model_configs(current_user: Dict = Depends(get_current_user)):
         """获取用户的AI模型配置"""
         try:
             user_id = current_user["user_id"]
             models = await database.get_ai_models(user_id)
-            return models
+            # Pydantic 会自动将 api_key 转换为 apiKey（通过 Field alias）
+            return [AIModelResponse(**model) for model in models]
         except Exception as e:
             logger.error(f"获取AI模型配置失败: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -616,13 +653,14 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             logger.error(f"更新AI模型配置失败: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    @app.get("/api/exchanges")
+    @app.get("/api/exchanges", response_model=List[ExchangeResponse])
     async def get_exchange_configs(current_user: Dict = Depends(get_current_user)):
         """获取用户的交易所配置"""
         try:
             user_id = current_user["user_id"]
             exchanges = await database.get_exchanges(user_id)
-            return exchanges
+            # Pydantic 会自动将 api_key 转换为 apiKey（通过 Field alias）
+            return [ExchangeResponse(**exchange) for exchange in exchanges]
         except Exception as e:
             logger.error(f"获取交易所配置失败: {e}")
             raise HTTPException(status_code=500, detail=str(e))

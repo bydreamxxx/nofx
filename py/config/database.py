@@ -61,7 +61,7 @@ class Database:
             )""",
 
             # 交易所配置表
-            """CREATE TABLE exchanges (
+            """CREATE TABLE IF NOT EXISTS exchanges (
 			id TEXT NOT NULL,
 			user_id TEXT NOT NULL DEFAULT 'default',
 			name TEXT NOT NULL,

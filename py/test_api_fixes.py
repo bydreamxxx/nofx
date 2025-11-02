@@ -51,8 +51,8 @@ async def test_all_apis():
     print("=" * 60)
 
     # 测试1: GET /health
-    print("\n📡 测试 GET /health")
-    response = client.get("/health")
+    print("\n📡 测试 GET /api/health")
+    response = client.get("/api/health")
     print(f"  状态码: {response.status_code}")
     print(f"  响应: {response.json()}")
     assert response.status_code == 200
@@ -73,6 +73,71 @@ async def test_all_apis():
     assert "admin_mode" in data
     assert "default_coins" in data
     print("  ✅ 通过")
+
+    # 测试 Pydantic 模型字段转换
+    print("\n📡 测试 GET /api/supported-models (字段名转换)")
+    response = client.get("/api/supported-models")
+    print(f"  状态码: {response.status_code}")
+    if response.status_code == 200:
+        data = response.json()
+        print(f"  模型数量: {len(data)}")
+        if len(data) > 0:
+            model = data[0]
+            print(f"  第一个模型:")
+            print(f"    id: {model.get('id')}")
+            print(f"    name: {model.get('name')}")
+            print(f"    provider: {model.get('provider')}")
+            # 检查是否使用 camelCase
+            if 'apiKey' in model:
+                print(f"    ✅ apiKey 字段存在 (camelCase)")
+            elif 'api_key' in model:
+                print(f"    ❌ api_key 字段存在 (snake_case) - 应该是 apiKey")
+
+            if 'customApiUrl' in model:
+                print(f"    ✅ customApiUrl 字段存在 (camelCase)")
+            elif 'custom_api_url' in model:
+                print(f"    ❌ custom_api_url 字段存在 (snake_case) - 应该是 customApiUrl")
+
+            # 断言字段名格式正确
+            assert 'apiKey' in model, "应该返回 apiKey 而不是 api_key"
+            assert 'api_key' not in model, "不应该返回 api_key"
+            print("  ✅ 字段名转换正确")
+        print("  ✅ 通过")
+    else:
+        print(f"  ⚠️  响应: {response.json()}")
+
+    print("\n📡 测试 GET /api/supported-exchanges (字段名转换)")
+    response = client.get("/api/supported-exchanges")
+    print(f"  状态码: {response.status_code}")
+    if response.status_code == 200:
+        data = response.json()
+        print(f"  交易所数量: {len(data)}")
+        if len(data) > 0:
+            exchange = data[0]
+            print(f"  第一个交易所:")
+            print(f"    id: {exchange.get('id')}")
+            print(f"    name: {exchange.get('name')}")
+            print(f"    type: {exchange.get('type')}")
+            # 检查是否使用 camelCase
+            if 'apiKey' in exchange:
+                print(f"    ✅ apiKey 字段存在 (camelCase)")
+            elif 'api_key' in exchange:
+                print(f"    ❌ api_key 字段存在 (snake_case) - 应该是 apiKey")
+
+            if 'secretKey' in exchange:
+                print(f"    ✅ secretKey 字段存在 (camelCase)")
+            elif 'secret_key' in exchange:
+                print(f"    ❌ secret_key 字段存在 (snake_case) - 应该是 secretKey")
+
+            # 断言字段名格式正确
+            assert 'apiKey' in exchange, "应该返回 apiKey 而不是 api_key"
+            assert 'secretKey' in exchange, "应该返回 secretKey 而不是 secret_key"
+            assert 'api_key' not in exchange, "不应该返回 api_key"
+            assert 'secret_key' not in exchange, "不应该返回 secret_key"
+            print("  ✅ 字段名转换正确")
+        print("  ✅ 通过")
+    else:
+        print(f"  ⚠️  响应: {response.json()}")
 
     print("\n" + "=" * 60)
     print("测试需要认证的API")
@@ -130,6 +195,12 @@ async def test_all_apis():
     print("4. ✅ 修复了 /api/equity-history 返回完整历史数据")
     print("5. ✅ 统一了响应格式（部分API）")
     print("6. ✅ 修复了所有9个现有API")
+    print("7. ✅ 使用 Pydantic 模型自动转换字段名 (snake_case → camelCase)")
+    print("8. ✅ 4个端点已应用字段名转换:")
+    print("   - /api/supported-models")
+    print("   - /api/supported-exchanges")
+    print("   - /api/models")
+    print("   - /api/exchanges")
 
 
 if __name__ == "__main__":
