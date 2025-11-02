@@ -106,7 +106,8 @@ async def main():
         return
 
     # 启动所有交易员
-    if trader_manager.get_all_traders():
+    traders = await trader_manager.get_all_traders()
+    if traders:
         logger.info("🚀 启动所有交易员...")
         try:
             # 在后台启动所有交易员
@@ -125,11 +126,14 @@ async def main():
     api_port_str = await database.get_system_config("api_server_port")
     api_port = int(api_port_str) if api_port_str else 8080
 
+    # 获取交易员数量
+    all_traders = await trader_manager.get_all_traders()
+
     logger.success(f"\n{'='*60}")
     logger.success(f"🚀 NOFX Python 版本已启动")
     logger.success(f"📡 API 服务器: http://localhost:{api_port}")
     logger.success(f"🌐 Web 界面: http://localhost:3000")
-    logger.success(f"🤖 运行中的交易员: {len(trader_manager.get_all_traders())} 个")
+    logger.success(f"🤖 运行中的交易员: {len(all_traders)} 个")
     logger.success(f"{'='*60}\n")
 
     # 启动 uvicorn 服务器
