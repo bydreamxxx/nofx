@@ -170,6 +170,10 @@ class BinanceFuturesTrader(Trader):
             )
             logger.info(f"  ✓ {symbol} 杠杆已设置为 {leverage}x")
 
+            # 切换杠杆后等待5秒（避免冷却期错误）
+            logger.debug("  ⏱ 等待5秒冷却期...")
+            await asyncio.sleep(5)
+
         except BinanceAPIException as e:
             logger.error(f"  ❌ 设置杠杆失败: {e}")
             raise Exception(f"设置杠杆失败: {e}")
@@ -191,6 +195,12 @@ class BinanceFuturesTrader(Trader):
         self, symbol: str, quantity: float, leverage: int
     ) -> Dict[str, Any]:
         """开多仓"""
+        # 先取消该币种的所有委托单（清理旧的止损止盈单）
+        try:
+            await self.cancel_all_orders(symbol)
+        except Exception as e:
+            logger.warning(f"  ⚠️ 取消旧委托单失败（可能没有委托单）: {e}")
+
         # 设置杠杆
         await self.set_leverage(symbol, leverage)
 
@@ -225,6 +235,12 @@ class BinanceFuturesTrader(Trader):
         self, symbol: str, quantity: float, leverage: int
     ) -> Dict[str, Any]:
         """开空仓"""
+        # 先取消该币种的所有委托单（清理旧的止损止盈单）
+        try:
+            await self.cancel_all_orders(symbol)
+        except Exception as e:
+            logger.warning(f"  ⚠️ 取消旧委托单失败（可能没有委托单）: {e}")
+
         # 设置杠杆
         await self.set_leverage(symbol, leverage)
 
@@ -283,6 +299,12 @@ class BinanceFuturesTrader(Trader):
 
             logger.success(f"✓ 平多仓成功: {symbol} {formatted_qty}")
 
+            # 平仓后取消该币种的所有挂单（止损止盈单）
+            try:
+                await self.cancel_all_orders(symbol)
+            except Exception as e:
+                logger.warning(f"  ⚠️ 取消挂单失败: {e}")
+
             return {
                 "orderId": order['orderId'],
                 "symbol": symbol,
@@ -323,6 +345,12 @@ class BinanceFuturesTrader(Trader):
 
             logger.success(f"✓ 平空仓成功: {symbol} {formatted_qty}")
 
+            # 平仓后取消该币种的所有挂单（止损止盈单）
+            try:
+                await self.cancel_all_orders(symbol)
+            except Exception as e:
+                logger.warning(f"  ⚠️ 取消挂单失败: {e}")
+
             return {
                 "orderId": order['orderId'],
                 "symbol": symbol,
@@ -354,7 +382,9 @@ class BinanceFuturesTrader(Trader):
                 positionSide=position_side.upper(),
                 type='STOP_MARKET',
                 quantity=formatted_qty,
-                stopPrice=stop_price
+                stopPrice=stop_price,
+                workingType='CONTRACT_PRICE',  # 使用合约价格触发
+                closePosition=True  # 触发时平掉整个持仓
             )
 
             logger.info(f"  ✓ 止损单已设置: {symbol} @ {stop_price}")
@@ -381,7 +411,9 @@ class BinanceFuturesTrader(Trader):
                 positionSide=position_side.upper(),
                 type='TAKE_PROFIT_MARKET',
                 quantity=formatted_qty,
-                stopPrice=take_profit_price
+                stopPrice=take_profit_price,
+                workingType='CONTRACT_PRICE',  # 使用合约价格触发
+                closePosition=True  # 触发时平掉整个持仓
             )
 
             logger.info(f"  ✓ 止盈单已设置: {symbol} @ {take_profit_price}")

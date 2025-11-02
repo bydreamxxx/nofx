@@ -144,7 +144,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
 
             for trader_record in user_traders:
                 trader_id = trader_record["id"]
-                trader = trader_manager.get_trader(trader_id)
+                trader = await trader_manager.get_trader(trader_id)
 
                 if not trader:
                     logger.warning(f"交易员 {trader_id} 未加载到内存")
@@ -205,7 +205,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             user_id = current_user["user_id"]
             _, trader_id = await get_trader_from_query(user_id, trader_id)
 
-            trader = trader_manager.get_trader(trader_id)
+            trader = await trader_manager.get_trader(trader_id)
             if not trader:
                 raise HTTPException(status_code=404, detail=f"交易员 {trader_id} 不存在")
 
@@ -229,7 +229,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             user_id = current_user["user_id"]
             _, trader_id = await get_trader_from_query(user_id, trader_id)
 
-            trader = trader_manager.get_trader(trader_id)
+            trader = await trader_manager.get_trader(trader_id)
             if not trader:
                 raise HTTPException(status_code=404, detail=f"交易员 {trader_id} 不存在")
 
@@ -271,7 +271,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             user_id = current_user["user_id"]
             _, trader_id = await get_trader_from_query(user_id, trader_id)
 
-            trader = trader_manager.get_trader(trader_id)
+            trader = await trader_manager.get_trader(trader_id)
             if not trader:
                 raise HTTPException(status_code=404, detail=f"交易员 {trader_id} 不存在")
 
@@ -311,7 +311,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             user_id = current_user["user_id"]
             _, trader_id = await get_trader_from_query(user_id, trader_id)
 
-            trader = trader_manager.get_trader(trader_id)
+            trader = await trader_manager.get_trader(trader_id)
             if not trader:
                 raise HTTPException(status_code=404, detail=f"交易员 {trader_id} 不存在")
 
@@ -339,7 +339,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             user_id = current_user["user_id"]
             _, trader_id = await get_trader_from_query(user_id, trader_id)
 
-            trader = trader_manager.get_trader(trader_id)
+            trader = await trader_manager.get_trader(trader_id)
             if not trader:
                 raise HTTPException(status_code=404, detail=f"交易员 {trader_id} 不存在")
 
@@ -366,7 +366,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             user_id = current_user["user_id"]
             _, trader_id = await get_trader_from_query(user_id, trader_id)
 
-            trader = trader_manager.get_trader(trader_id)
+            trader = await trader_manager.get_trader(trader_id)
             if not trader:
                 raise HTTPException(status_code=404, detail=f"交易员 {trader_id} 不存在")
 
@@ -713,7 +713,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             for trader in traders:
                 # 获取实时运行状态
                 is_running = trader.get("is_running", False)
-                trader_obj = trader_manager.get_trader(trader["id"])
+                trader_obj = await trader_manager.get_trader(trader["id"])
                 if trader_obj:
                     status = trader_obj.get_status()
                     is_running = status.get("is_running", False)
@@ -755,7 +755,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
 
             # 获取实时运行状态
             is_running = trader_config.get("is_running", False)
-            trader_obj = trader_manager.get_trader(trader_id)
+            trader_obj = await trader_manager.get_trader(trader_id)
             if trader_obj:
                 status = trader_obj.get_status()
                 is_running = status.get("is_running", False)
@@ -854,7 +854,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             user_id = current_user["user_id"]
 
             # 如果交易员正在运行，先停止它
-            trader_obj = trader_manager.get_trader(trader_id)
+            trader_obj = await trader_manager.get_trader(trader_id)
             if trader_obj:
                 status = trader_obj.get_status()
                 if status.get("is_running", False):
@@ -883,7 +883,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             # 验证trader属于当前用户
             await get_trader_from_query(user_id, trader_id)
 
-            trader = trader_manager.get_trader(trader_id)
+            trader = await trader_manager.get_trader(trader_id)
             if not trader:
                 raise HTTPException(status_code=404, detail="交易员不存在")
 
@@ -930,7 +930,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             # 验证trader属于当前用户
             await get_trader_from_query(user_id, trader_id)
 
-            trader = trader_manager.get_trader(trader_id)
+            trader = await trader_manager.get_trader(trader_id)
             if not trader:
                 raise HTTPException(status_code=404, detail="交易员不存在")
 

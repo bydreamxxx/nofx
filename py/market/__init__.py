@@ -8,6 +8,7 @@ from .data import (
     OIData,
     IntradayData,
     LongerTermData,
+    format_market_data,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     'OIData',
     'IntradayData',
     'LongerTermData',
+    'format_market_data',
 ]

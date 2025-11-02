@@ -262,3 +262,87 @@ class MarketDataFetcher:
             macd_values=macd_values,
             rsi14_values=rsi14_values,
         )
+
+
+def format_market_data(data: MarketData) -> str:
+    """
+    格式化市场数据为可读字符串（对齐 Go 版本的 Format 函数）
+
+    Args:
+        data: 市场数据对象
+
+    Returns:
+        格式化后的字符串
+    """
+    lines = []
+
+    # 当前价格和指标
+    lines.append(
+        f"current_price = {data.current_price:.2f}, "
+        f"current_ema20 = {data.current_ema20:.3f}, "
+        f"current_macd = {data.current_macd:.3f}, "
+        f"current_rsi (7 period) = {data.current_rsi7:.3f}\n"
+    )
+
+    # 持仓量和资金费率
+    lines.append(f"In addition, here is the latest {data.symbol} open interest and funding rate for perps:\n")
+
+    if data.open_interest:
+        lines.append(
+            f"Open Interest: Latest: {data.open_interest.latest:.2f} "
+            f"Average: {data.open_interest.average:.2f}\n"
+        )
+
+    lines.append(f"Funding Rate: {data.funding_rate:.2e}\n")
+
+    # 日内系列数据（3分钟）
+    if data.intraday_series:
+        lines.append("Intraday series (3‑minute intervals, oldest → latest):\n")
+
+        if data.intraday_series.mid_prices:
+            lines.append(f"Mid prices: {_format_float_list(data.intraday_series.mid_prices)}\n")
+
+        if data.intraday_series.ema20_values:
+            lines.append(f"EMA indicators (20‑period): {_format_float_list(data.intraday_series.ema20_values)}\n")
+
+        if data.intraday_series.macd_values:
+            lines.append(f"MACD indicators: {_format_float_list(data.intraday_series.macd_values)}\n")
+
+        if data.intraday_series.rsi7_values:
+            lines.append(f"RSI indicators (7‑Period): {_format_float_list(data.intraday_series.rsi7_values)}\n")
+
+        if data.intraday_series.rsi14_values:
+            lines.append(f"RSI indicators (14‑Period): {_format_float_list(data.intraday_series.rsi14_values)}\n")
+
+    # 长期数据（4小时）
+    if data.longer_term_context:
+        lines.append("Longer‑term context (4‑hour timeframe):\n")
+
+        lines.append(
+            f"20‑Period EMA: {data.longer_term_context.ema20:.3f} vs. "
+            f"50‑Period EMA: {data.longer_term_context.ema50:.3f}\n"
+        )
+
+        lines.append(
+            f"3‑Period ATR: {data.longer_term_context.atr3:.3f} vs. "
+            f"14‑Period ATR: {data.longer_term_context.atr14:.3f}\n"
+        )
+
+        lines.append(
+            f"Current Volume: {data.longer_term_context.current_volume:.3f} vs. "
+            f"Average Volume: {data.longer_term_context.average_volume:.3f}\n"
+        )
+
+        if data.longer_term_context.macd_values:
+            lines.append(f"MACD indicators: {_format_float_list(data.longer_term_context.macd_values)}\n")
+
+        if data.longer_term_context.rsi14_values:
+            lines.append(f"RSI indicators (14‑Period): {_format_float_list(data.longer_term_context.rsi14_values)}\n")
+
+    return "\n".join(lines)
+
+
+def _format_float_list(values: List[float]) -> str:
+    """格式化浮点数列表为字符串"""
+    formatted = [f"{v:.3f}" for v in values]
+    return "[" + ", ".join(formatted) + "]"
