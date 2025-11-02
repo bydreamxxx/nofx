@@ -201,7 +201,7 @@ class Client:
                 model=self.model,
                 messages=messages,
                 temperature=0.5,
-                max_tokens=2000
+                max_tokens=4000
             )
 
             # 提取内容
