@@ -169,8 +169,8 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
         try:
             user_id = current_user["user_id"]
 
-            # 加载用户的交易员
-            await trader_manager.load_traders_from_database(database)
+            # 加载用户的交易员（只加载当前用户的）
+            await trader_manager.load_user_traders(database, user_id)
 
             # 获取用户的交易员列表
             user_traders = await database.get_traders(user_id)
@@ -895,8 +895,8 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
                 use_oi_top=request_body.use_oi_top
             )
 
-            # 加载到内存
-            await trader_manager.load_traders_from_database(database)
+            # 加载到内存（只加载当前用户的交易员）
+            await trader_manager.load_user_traders(database, user_id)
 
             logger.info(f"✅ 创建交易员成功: {request_body.name} (模型: {request_body.ai_model_id}, 交易所: {request_body.exchange_id})")
 
@@ -951,8 +951,8 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
                 use_oi_top=request_body.use_oi_top
             )
 
-            # 重新加载交易员到内存
-            await trader_manager.load_traders_from_database(database)
+            # 重新加载交易员到内存（只加载当前用户的交易员）
+            await trader_manager.load_user_traders(database, user_id)
 
             logger.info(f"✅ 更新交易员成功: {request_body.name} (模型: {request_body.ai_model_id}, 交易所: {request_body.exchange_id})")
 
