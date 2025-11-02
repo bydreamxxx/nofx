@@ -45,15 +45,14 @@ async def main():
     # 打印欢迎信息
     print_banner()
 
-    # 加载配置
+    # 加载配置（目前只用于验证，实际配置从数据库读取）
     logger.info(f"📁 加载配置文件: {args.config}")
     try:
-        config = load_config(args.config)
+        _ = load_config(args.config)  # 验证配置文件格式
         logger.success(f"✓ 配置加载成功")
     except FileNotFoundError:
         logger.warning(f"⚠️  配置文件不存在: {args.config}")
         logger.info("💡 将使用数据库配置")
-        config = None
     except Exception as e:
         logger.error(f"❌ 配置加载失败: {e}")
         return

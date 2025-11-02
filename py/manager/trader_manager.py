@@ -306,10 +306,9 @@ class TraderManager:
             except Exception as e:
                 logger.error(f"❌ 停止交易员 {trader.name} 失败: {e}")
 
-        # 锁保护：读取和等待任务完成
+        # 锁保护：读取任务列表
         async with self._lock:
-            if self.trader_tasks:
-                tasks = list(self.trader_tasks.values())
+            tasks = list(self.trader_tasks.values()) if self.trader_tasks else []
 
         # 在锁外等待任务完成（避免长时间持有锁）
         if tasks:
