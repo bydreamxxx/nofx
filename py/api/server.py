@@ -992,6 +992,74 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
             logger.error(f"停止交易员失败: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+    @app.post("/api/traders/{trader_id}/close-all-positions")
+    async def close_all_positions(
+        trader_id: str,
+        current_user: Dict = Depends(get_current_user)
+    ):
+        """一键平仓所有持仓"""
+        try:
+            user_id = current_user["user_id"]
+
+            # 验证trader属于当前用户
+            await get_trader_from_query(user_id, trader_id)
+
+            trader = await trader_manager.get_trader(trader_id)
+            if not trader:
+                raise HTTPException(status_code=404, detail="交易员不存在")
+
+            logger.info(f"🔄 [{trader.get_name()}] 收到一键平仓请求")
+
+            await trader.close_all_positions()
+
+            logger.info(f"✓ [{trader.get_name()}] 一键平仓完成")
+            return {"message": "所有持仓已平仓"}
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"一键平仓失败: {e}")
+            raise HTTPException(status_code=500, detail=f"平仓失败: {str(e)}")
+
+    # 定义请求模型（在函数外部定义）
+    class ClosePositionRequest(BaseModel):
+        symbol: str
+        side: str
+
+    @app.post("/api/traders/{trader_id}/close-position")
+    async def close_position(
+        trader_id: str,
+        request_body: ClosePositionRequest,
+        current_user: Dict = Depends(get_current_user)
+    ):
+        """平仓单个持仓"""
+        try:
+            user_id = current_user["user_id"]
+
+            # 验证side参数
+            if request_body.side not in ["long", "short"]:
+                raise HTTPException(status_code=400, detail="side参数必须是 'long' 或 'short'")
+
+            # 验证trader属于当前用户
+            await get_trader_from_query(user_id, trader_id)
+
+            trader = await trader_manager.get_trader(trader_id)
+            if not trader:
+                raise HTTPException(status_code=404, detail="交易员不存在")
+
+            logger.info(f"🔄 [{trader.get_name()}] 收到平仓请求: {request_body.symbol} {request_body.side}")
+
+            await trader.close_position(request_body.symbol, request_body.side)
+
+            logger.info(f"✓ [{trader.get_name()}] 平仓完成: {request_body.symbol} {request_body.side}")
+            return {"message": f"持仓 {request_body.symbol} {request_body.side} 已平仓"}
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"平仓失败: {e}")
+            raise HTTPException(status_code=500, detail=f"平仓失败: {str(e)}")
+
     # ==================== 提示词模板管理 ====================
 
     @app.get("/api/prompt-templates")

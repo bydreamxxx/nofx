@@ -852,6 +852,65 @@ class AutoTrader:
         self.override_base_prompt = override
         logger.info(f"📝 [{self.name}] 覆盖基础提示词: {override}")
 
+    async def close_all_positions(self) -> None:
+        """一键平仓所有持仓"""
+        try:
+            positions = await self.trader.get_positions()
+
+            if not positions:
+                logger.info(f"📊 [{self.name}] 当前无持仓，无需平仓")
+                return
+
+            logger.info(f"🔄 [{self.name}] 开始平仓所有持仓 ({len(positions)}个)")
+
+            errors = []
+            for pos in positions:
+                symbol = pos["symbol"]
+                side = pos["side"]
+
+                try:
+                    if side == "long":
+                        await self.trader.close_long(symbol, 0)  # 0表示全部平仓
+                    elif side == "short":
+                        await self.trader.close_short(symbol, 0)  # 0表示全部平仓
+
+                    logger.info(f"✓ [{self.name}] 成功平仓 {symbol} {side}")
+                except Exception as e:
+                    error_msg = f"{symbol} {side}: {e}"
+                    logger.error(f"❌ [{self.name}] 平仓失败 {error_msg}")
+                    errors.append(error_msg)
+
+                # 短暂延迟，避免请求过快
+                await asyncio.sleep(0.5)
+
+            if errors:
+                raise Exception(f"部分平仓失败: {'; '.join(errors)}")
+
+            logger.info(f"✓ [{self.name}] 所有持仓已平仓")
+        except Exception as e:
+            logger.error(f"❌ [{self.name}] 一键平仓失败: {e}")
+            raise
+
+    async def close_position(self, symbol: str, side: str) -> None:
+        """关闭指定持仓
+
+        Args:
+            symbol: 交易对符号
+            side: 持仓方向 ('long' 或 'short')
+        """
+        try:
+            if side == "long":
+                await self.trader.close_long(symbol, 0)  # 0表示全部平仓
+            elif side == "short":
+                await self.trader.close_short(symbol, 0)  # 0表示全部平仓
+            else:
+                raise ValueError(f"无效的持仓方向: {side}，必须是 'long' 或 'short'")
+
+            logger.info(f"✓ [{self.name}] 成功平仓 {symbol} {side}")
+        except Exception as e:
+            logger.error(f"❌ [{self.name}] 平仓失败 {symbol} {side}: {e}")
+            raise Exception(f"平仓失败: {e}")
+
     async def get_account_info(self) -> Dict[str, Any]:
         """
         获取账户信息（与Go版本对齐）
