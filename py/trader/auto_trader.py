@@ -163,6 +163,7 @@ class AutoTrader:
             self.trader = BinanceFuturesTrader(
                 api_key=self.config.binance_api_key,
                 secret_key=self.config.binance_secret_key,
+                testnet=self.config.testnet
             )
         elif self.exchange == "hyperliquid":
             logger.info(f"🏦 [{self.name}] 使用 Hyperliquid DEX")

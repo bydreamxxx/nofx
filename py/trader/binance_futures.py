@@ -15,10 +15,8 @@ from .interface import Trader
 class BinanceFuturesTrader(Trader):
     """币安合约交易器"""
 
-    def __init__(self, api_key: str, secret_key: str):
-        self.client = BinanceClient(api_key, secret_key)
-        # 设置为期货 API
-        self.client.FUTURES_URL = 'https://fapi.binance.com'
+    def __init__(self, api_key: str, secret_key: str, testnet: bool = False):
+        self.client = BinanceClient(api_key, secret_key, testnet=testnet)
 
         # 缓存配置
         self.cache_duration = timedelta(seconds=15)
