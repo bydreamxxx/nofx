@@ -15,7 +15,7 @@ from utils.http_config import get_http_proxy
 class WebSocketClient:
     """Binance WebSocket 客户端"""
 
-    def __init__(self, url: str = "wss://fstream.binance.com/ws"):
+    def __init__(self, url: str = "wss://fstream.binance.com/stream"):
         self.url = url
         self.ws: Optional[websockets.WebSocketClientProtocol] = None
         self.subscribers: Dict[str, asyncio.Queue] = {}

@@ -80,11 +80,11 @@ class BinanceFuturesTrader(Trader):
         if not skin and self.cached_positions and self.positions_cache_time:
             age = datetime.now() - self.positions_cache_time
             if age < self.cache_duration:
-                logger.info(f"✓ 使用缓存的持仓信息（缓存时间: {age.total_seconds():.1f}秒前）")
+                logger.debug(f"✓ 使用缓存的持仓信息（缓存时间: {age.total_seconds():.1f}秒前）")
                 return self.cached_positions
 
         # 缓存过期，调用 API
-        logger.info("🔄 缓存过期，正在调用币安API获取持仓信息...")
+        logger.debug("🔄 缓存过期，正在调用币安API获取持仓信息...")
 
         try:
             positions = await asyncio.to_thread(self.client.futures_position_information)
