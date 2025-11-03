@@ -193,6 +193,15 @@ class AutoTrader:
         else:
             raise ValueError(f"不支持的交易平台: {self.exchange}")
 
+        # 1.5. 对于币安交易器，启动用户数据流 WebSocket
+        from trader.binance_futures import BinanceFuturesTrader
+        if isinstance(self.trader, BinanceFuturesTrader):
+            try:
+                await self.trader.initialize_user_stream()
+                logger.success(f"✅ [{self.name}] 用户数据流 WebSocket 已启动")
+            except Exception as e:
+                logger.warning(f"⚠️  [{self.name}] 用户数据流启动失败，将使用 REST API: {e}")
+
         # 2. 初始化AI客户端
         self.mcp_client = MCPClient()
 
@@ -281,6 +290,15 @@ class AutoTrader:
         """停止自动交易"""
         self.is_running = False
         logger.info("⏹ 自动交易系统停止")
+
+        # 停止用户数据流（如果是币安交易器）
+        from trader.binance_futures import BinanceFuturesTrader
+        if isinstance(self.trader, BinanceFuturesTrader):
+            try:
+                import asyncio
+                asyncio.create_task(self.trader.stop_user_stream())
+            except Exception as e:
+                logger.warning(f"⚠️  停止用户数据流失败: {e}")
 
     async def run_cycle(self) -> None:
         """运行一个交易周期（使用AI全权决策）"""
@@ -444,9 +462,9 @@ class AutoTrader:
             # 8. 对决策排序：确保先平仓后开仓（防止仓位叠加超限）
             sorted_decisions = self._sort_decisions_by_priority(decision.decisions)
 
-            logger.info("🔄 执行顺序（已优化）: 先平仓→后开仓")
+            logger.debug("🔄 执行顺序（已优化）: 先平仓→后开仓")
             for i, d in enumerate(sorted_decisions, 1):
-                logger.info(f"  [{i}] {d.symbol} {d.action}")
+                logger.debug(f"  [{i}] {d.symbol} {d.action}")
 
             # 9. 执行决策并记录结果
             for d in sorted_decisions:

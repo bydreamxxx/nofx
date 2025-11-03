@@ -160,13 +160,13 @@ class MarketDataFetcher:
         klines = []
         for kline in klines_data:
             klines.append({
-                "open_time": kline.open_time,
-                "open": kline.open,
-                "high": kline.high,
-                "low": kline.low,
-                "close": kline.close,
-                "volume": kline.volume,
-                "close_time": kline.close_time,
+                "open_time": int(kline.open_time),
+                "open": float(kline.open),
+                "high": float(kline.high),
+                "low": float(kline.low),
+                "close": float(kline.close),
+                "volume": float(kline.volume),
+                "close_time": int(kline.close_time),
             })
 
         return klines
@@ -412,6 +412,7 @@ def format_market_data(data: MarketData) -> str:
 
 
 def _format_float_list(values: List[float]) -> str:
-    """格式化浮点数列表为字符串"""
-    formatted = [f"{v:.3f}" for v in values]
+    """格式化浮点数列表为字符串（过滤 NaN 值）"""
+    import math
+    formatted = [f"{v:.3f}" for v in values if not math.isnan(v)]
     return "[" + ", ".join(formatted) + "]"

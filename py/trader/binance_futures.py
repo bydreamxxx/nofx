@@ -11,6 +11,7 @@ from loguru import logger
 from utils.http_config import get_http_proxy
 
 from .interface import Trader
+from market.user_data_stream import UserDataStream
 
 
 class BinanceFuturesTrader(Trader):
@@ -18,16 +19,17 @@ class BinanceFuturesTrader(Trader):
 
     def __init__(self, api_key: str, secret_key: str, testnet: bool = False):
         self.client = BinanceClient(api_key, secret_key, testnet=testnet)
+        self.api_key = api_key
+        self.secret_key = secret_key
+        self.testnet = testnet
 
-        # 缓存配置
+        # 用户数据流 WebSocket
+        self.user_stream: Optional[UserDataStream] = None
+        self.user_stream_enabled = True  # 是否启用用户数据流
+
+        # 缓存配置（当 WebSocket 未启用时使用）
         self.cache_duration = timedelta(seconds=10)
-
-        # 余额缓存
-        self.cached_balance: Optional[Dict[str, Any]] = None
         self.balance_cache_time: Optional[datetime] = None
-
-        # 持仓缓存
-        self.cached_positions: Optional[List[Dict[str, Any]]] = None
         self.positions_cache_time: Optional[datetime] = None
 
         # 交易所信息缓存（精度信息）
@@ -36,20 +38,52 @@ class BinanceFuturesTrader(Trader):
         # 设置双向持仓模式标志（延迟初始化）
         self._dual_position_mode_set = False
 
-    async def get_balance(self) -> Dict[str, Any]:
-        """获取账户余额（带缓存）"""
-        # 检查缓存
-        if self.cached_balance and self.balance_cache_time:
-            age = datetime.now() - self.balance_cache_time
-            if age < self.cache_duration:
-                logger.info(f"✓ 使用缓存的账户余额（缓存时间: {age.total_seconds():.1f}秒前）")
-                return self.cached_balance
-
-        # 缓存过期，调用 API
-        logger.info("🔄 缓存过期，正在调用币安API获取账户余额...")
+    async def initialize_user_stream(self):
+        """初始化用户数据流（WebSocket）"""
+        if not self.user_stream_enabled:
+            return
 
         try:
-            # 使用 asyncio.to_thread 将同步调用转为异步
+            self.user_stream = UserDataStream(
+                api_key=self.api_key,
+                secret_key=self.secret_key,
+                testnet=self.testnet
+            )
+            await self.user_stream.start()
+            logger.success("✅ 币安用户数据流已启动")
+        except Exception as e:
+            logger.error(f"❌ 启动用户数据流失败: {e}")
+            self.user_stream = None
+
+    async def stop_user_stream(self):
+        """停止用户数据流"""
+        if self.user_stream:
+            await self.user_stream.stop()
+            self.user_stream = None
+
+    async def get_balance(self) -> Dict[str, Any]:
+        """获取账户余额（优先使用 WebSocket，否则使用 REST API）"""
+        # 1. 优先使用用户数据流（WebSocket）
+        if self.user_stream:
+            account_data = self.user_stream.get_account_data()
+            if account_data:
+                logger.debug("✓ 使用 WebSocket 实时账户数据")
+                return account_data
+
+        # 2. WebSocket 未启用或无数据，使用 REST API + 缓存
+        if self.balance_cache_time:
+            age = datetime.now() - self.balance_cache_time
+            if age < self.cache_duration:
+                logger.debug(f"✓ 使用缓存的账户余额（{age.total_seconds():.1f}秒前）")
+                # 如果有缓存数据但没有实际值，返回默认值
+                if not hasattr(self, 'cached_balance') or self.cached_balance is None:
+                    return {"totalWalletBalance": 0.0, "availableBalance": 0.0, "totalUnrealizedProfit": 0.0}
+                return self.cached_balance
+
+        # 缓存过期，调用 REST API
+        logger.debug("🔄 调用币安 REST API 获取账户余额...")
+
+        try:
             account = await asyncio.to_thread(self.client.futures_account)
 
             result = {
@@ -57,12 +91,6 @@ class BinanceFuturesTrader(Trader):
                 "availableBalance": float(account['availableBalance']),
                 "totalUnrealizedProfit": float(account['totalUnrealizedProfit']),
             }
-
-            logger.debug(
-                f"✓ 币安API返回: 总余额={result['totalWalletBalance']}, "
-                f"可用={result['availableBalance']}, "
-                f"未实现盈亏={result['totalUnrealizedProfit']}"
-            )
 
             # 更新缓存
             self.cached_balance = result
@@ -75,16 +103,25 @@ class BinanceFuturesTrader(Trader):
             raise Exception(f"获取账户信息失败: {e}")
 
     async def get_positions(self, skin: bool = False) -> List[Dict[str, Any]]:
-        """获取所有持仓（带缓存）"""
-        # 检查缓存
-        if not skin and self.cached_positions and self.positions_cache_time:
+        """获取所有持仓（优先使用 WebSocket，否则使用 REST API）"""
+        # 1. 优先使用用户数据流（WebSocket）
+        if self.user_stream and not skin:
+            positions = self.user_stream.get_positions()
+            if positions:
+                logger.debug(f"✓ 使用 WebSocket 实时持仓数据（{len(positions)} 个）")
+                return positions
+
+        # 2. WebSocket 未启用或无数据，使用 REST API + 缓存
+        if not skin and self.positions_cache_time:
             age = datetime.now() - self.positions_cache_time
             if age < self.cache_duration:
-                logger.debug(f"✓ 使用缓存的持仓信息（缓存时间: {age.total_seconds():.1f}秒前）")
+                logger.debug(f"✓ 使用缓存的持仓信息（{age.total_seconds():.1f}秒前）")
+                if not hasattr(self, 'cached_positions') or self.cached_positions is None:
+                    return []
                 return self.cached_positions
 
-        # 缓存过期，调用 API
-        logger.debug("🔄 缓存过期，正在调用币安API获取持仓信息...")
+        # 缓存过期，调用 REST API
+        logger.debug("🔄 调用币安 REST API 获取持仓信息...")
 
         try:
             positions = await asyncio.to_thread(self.client.futures_position_information)
