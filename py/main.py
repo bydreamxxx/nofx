@@ -107,11 +107,9 @@ async def main():
     # 启动所有交易员
     traders = await trader_manager.get_all_traders()
     if traders:
-        logger.info("🚀 启动所有交易员...")
         try:
             # 在后台启动所有交易员
             asyncio.create_task(trader_manager.start_all())
-            logger.success("✓ 所有交易员已启动")
         except Exception as e:
             logger.error(f"❌ 启动交易员失败: {e}")
     else:
@@ -125,14 +123,10 @@ async def main():
     api_port_str = await database.get_system_config("api_server_port")
     api_port = int(api_port_str) if api_port_str else 8080
 
-    # 获取交易员数量
-    all_traders = await trader_manager.get_all_traders()
-
     logger.success(f"\n{'='*60}")
     logger.success(f"🚀 NOFX Python 版本已启动")
     logger.success(f"📡 API 服务器: http://localhost:{api_port}")
     logger.success(f"🌐 Web 界面: http://localhost:3000")
-    logger.success(f"🤖 运行中的交易员: {len(all_traders)} 个")
     logger.success(f"{'='*60}\n")
 
     # 启动 uvicorn 服务器

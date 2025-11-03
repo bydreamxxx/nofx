@@ -314,8 +314,8 @@ class TraderManager:
             exchange=exchange_cfg["id"],
             scan_interval_minutes=trader_cfg["scan_interval_minutes"],
             initial_balance=trader_cfg["initial_balance"],
-            btc_eth_leverage=btc_eth_leverage,
-            altcoin_leverage=altcoin_leverage,
+            btc_eth_leverage=trader_cfg.get("btc_eth_leverage", btc_eth_leverage),
+            altcoin_leverage=trader_cfg.get("altcoin_leverage", altcoin_leverage),
             max_daily_loss=max_daily_loss,
             max_drawdown=max_drawdown,
             stop_trading_hours=stop_trading_hours,
@@ -390,18 +390,18 @@ class TraderManager:
         # 锁保护：读取 traders
         async with self._lock:
             traders_copy = dict(self.traders)
-            logger.info(f"🚀 启动所有交易员 ({len(traders_copy)} 个)...")
 
         for trader_id, trader in traders_copy.items():
             try:
-                # 创建异步任务
-                task = asyncio.create_task(trader.run())
+                if trader.is_running:
+                    # 创建异步任务
+                    task = asyncio.create_task(trader.run())
 
-                # 锁保护：写入 trader_tasks
-                async with self._lock:
-                    self.trader_tasks[trader_id] = task
+                    # 锁保护：写入 trader_tasks
+                    async with self._lock:
+                        self.trader_tasks[trader_id] = task
 
-                logger.info(f"✅ 交易员 {trader.name} 已启动")
+                    logger.info(f"✅ 交易员 {trader.name} 已启动")
             except Exception as e:
                 logger.error(f"❌ 启动交易员 {trader.name} 失败: {e}")
 

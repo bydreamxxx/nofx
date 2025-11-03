@@ -610,7 +610,7 @@ function TraderDetailsPage({
                         style={{ color: pos.unrealized_pnl >= 0 ? '#0ECB81' : '#F6465D', fontWeight: 'bold' }}
                       >
                         {pos.unrealized_pnl >= 0 ? '+' : ''}
-                        {pos.unrealized_pnl.toFixed(2)} ({pos.unrealized_pnl_pct.toFixed(2)}%)
+                        {pos.unrealized_pnl.toFixed(2)}
                       </span>
                     </td>
                     <td className="py-3 font-mono" style={{ color: '#848E9C' }}>

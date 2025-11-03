@@ -19,7 +19,7 @@ class BinanceFuturesTrader(Trader):
         self.client = BinanceClient(api_key, secret_key, testnet=testnet)
 
         # 缓存配置
-        self.cache_duration = timedelta(seconds=15)
+        self.cache_duration = timedelta(seconds=10)
 
         # 余额缓存
         self.cached_balance: Optional[Dict[str, Any]] = None
@@ -32,17 +32,20 @@ class BinanceFuturesTrader(Trader):
         # 交易所信息缓存（精度信息）
         self.exchange_info: Optional[Dict] = None
 
+        # 设置双向持仓模式标志（延迟初始化）
+        self._dual_position_mode_set = False
+
     async def get_balance(self) -> Dict[str, Any]:
         """获取账户余额（带缓存）"""
         # 检查缓存
         if self.cached_balance and self.balance_cache_time:
             age = datetime.now() - self.balance_cache_time
             if age < self.cache_duration:
-                logger.debug(f"✓ 使用缓存的账户余额（缓存时间: {age.total_seconds():.1f}秒前）")
+                logger.info(f"✓ 使用缓存的账户余额（缓存时间: {age.total_seconds():.1f}秒前）")
                 return self.cached_balance
 
         # 缓存过期，调用 API
-        logger.debug("🔄 缓存过期，正在调用币安API获取账户余额...")
+        logger.info("🔄 缓存过期，正在调用币安API获取账户余额...")
 
         try:
             # 使用 asyncio.to_thread 将同步调用转为异步
@@ -70,17 +73,17 @@ class BinanceFuturesTrader(Trader):
             logger.error(f"❌ 币安API调用失败: {e}")
             raise Exception(f"获取账户信息失败: {e}")
 
-    async def get_positions(self) -> List[Dict[str, Any]]:
+    async def get_positions(self, skin: bool = False) -> List[Dict[str, Any]]:
         """获取所有持仓（带缓存）"""
         # 检查缓存
-        if self.cached_positions and self.positions_cache_time:
+        if not skin and self.cached_positions and self.positions_cache_time:
             age = datetime.now() - self.positions_cache_time
             if age < self.cache_duration:
-                logger.debug(f"✓ 使用缓存的持仓信息（缓存时间: {age.total_seconds():.1f}秒前）")
+                logger.info(f"✓ 使用缓存的持仓信息（缓存时间: {age.total_seconds():.1f}秒前）")
                 return self.cached_positions
 
         # 缓存过期，调用 API
-        logger.debug("🔄 缓存过期，正在调用币安API获取持仓信息...")
+        logger.info("🔄 缓存过期，正在调用币安API获取持仓信息...")
 
         try:
             positions = await asyncio.to_thread(self.client.futures_position_information)
@@ -189,10 +192,34 @@ class BinanceFuturesTrader(Trader):
             logger.error(f"❌ 获取{symbol}价格失败: {e}")
             raise Exception(f"获取市场价格失败: {e}")
 
+    async def _ensure_dual_position_mode(self) -> None:
+        """确保账户启用了双向持仓模式（hedge mode）"""
+        if self._dual_position_mode_set:
+            return
+
+        try:
+            # 尝试启用双向持仓模式
+            await asyncio.to_thread(
+                self.client.futures_change_position_mode,
+                dualSidePosition=True
+            )
+            logger.info("✓ 已启用双向持仓模式（hedge mode）")
+            self._dual_position_mode_set = True
+        except BinanceAPIException as e:
+            error_msg = str(e)
+            # 如果已经是双向持仓模式，不报错
+            if "No need to change position side" in error_msg:
+                logger.debug("✓ 账户已处于双向持仓模式")
+                self._dual_position_mode_set = True
+            else:
+                logger.warning(f"⚠️ 设置双向持仓模式失败: {e}")
+                # 不抛出异常，让交易继续尝试
+
     async def open_long(
         self, symbol: str, quantity: float, leverage: int
     ) -> Dict[str, Any]:
         """开多仓"""
+
         # 先取消该币种的所有委托单（清理旧的止损止盈单）
         try:
             await self.cancel_all_orders(symbol)
@@ -233,6 +260,7 @@ class BinanceFuturesTrader(Trader):
         self, symbol: str, quantity: float, leverage: int
     ) -> Dict[str, Any]:
         """开空仓"""
+
         # 先取消该币种的所有委托单（清理旧的止损止盈单）
         try:
             await self.cancel_all_orders(symbol)
@@ -418,6 +446,48 @@ class BinanceFuturesTrader(Trader):
 
         except BinanceAPIException as e:
             logger.warning(f"  ⚠️ 设置止盈失败: {e}")
+
+    async def set_stop_loss_take_profit(
+        self, symbol: str, side: str, stop_loss: float, take_profit: float
+    ) -> Dict[str, Any]:
+        """设置止损止盈（组合方法）"""
+        logger.info(f"🎯 设置止损止盈: {symbol} SL={stop_loss} TP={take_profit}")
+
+        # 获取当前持仓数量
+        positions = await self.get_positions(True)
+        quantity = 0.0
+        position_side = side.upper()
+
+        for pos in positions:
+            if pos["symbol"] == symbol and pos["side"] == side:
+                quantity = abs(pos["positionAmt"])
+                break
+
+        if quantity == 0:
+            logger.warning(f"⚠️ {symbol} 没有 {side} 持仓，无法设置止损止盈")
+            return {"status": "no_position"}
+
+        results = []
+
+        # 设置止损单
+        if stop_loss > 0:
+            try:
+                await self.set_stop_loss(symbol, position_side, quantity, stop_loss)
+                results.append({"type": "stop_loss", "status": "success"})
+            except Exception as e:
+                logger.error(f"❌ 设置止损失败: {e}")
+                results.append({"type": "stop_loss", "status": "failed", "error": str(e)})
+
+        # 设置止盈单
+        if take_profit > 0:
+            try:
+                await self.set_take_profit(symbol, position_side, quantity, take_profit)
+                results.append({"type": "take_profit", "status": "success"})
+            except Exception as e:
+                logger.error(f"❌ 设置止盈失败: {e}")
+                results.append({"type": "take_profit", "status": "failed", "error": str(e)})
+
+        return {"status": "completed", "results": results}
 
     async def cancel_all_orders(self, symbol: str) -> None:
         """取消该币种的所有挂单"""

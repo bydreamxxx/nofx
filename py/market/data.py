@@ -2,6 +2,7 @@
 市场数据获取和技术指标计算模块
 """
 
+from decimal import Decimal
 import httpx
 import pandas as pd
 import pandas_ta as ta
@@ -52,7 +53,7 @@ class MarketData:
     current_macd: float
     current_rsi7: float
     open_interest: Optional[OIData]
-    funding_rate: float
+    funding_rate: Decimal
     intraday_series: Optional[IntradayData]
     longer_term_context: Optional[LongerTermData]
 
@@ -100,7 +101,7 @@ class MarketDataFetcher:
                 price_change_4h = ((current_price - price_4h_ago) / price_4h_ago) * 100
 
         # 获取 OI 数据
-        oi_data = await self._get_open_interest(symbol)
+        oi_data = await self._get_open_interest_history(symbol)
 
         # 获取 Funding Rate
         funding_rate = await self._get_funding_rate(symbol)
@@ -156,27 +157,33 @@ class MarketDataFetcher:
                 logger.error(f"获取K线数据失败 {symbol} {interval}: {e}")
                 raise
 
-    async def _get_open_interest(self, symbol: str) -> Optional[OIData]:
+    async def _get_open_interest_history(self, symbol: str) -> Optional[OIData]:
         """获取持仓量数据"""
-        url = f"{self.base_url}/fapi/v1/openInterest"
-        params = {"symbol": symbol}
+        url = f"{self.base_url}/futures/data/openInterestHist"
+        params = {"symbol": symbol, "period": "5m", "limit": 30}
 
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(url, params=params, timeout=10.0)
                 response.raise_for_status()
                 data = response.json()
-
-                latest = float(data.get("openInterest", 0))
-
-                # 简化：使用当前值作为平均值
-                return OIData(latest=latest, average=latest)
-
+                latest = 0
+                average = 0
+                if data and len(data) > 0:
+                    # 提取持仓量数值
+                    oi_values = [float(item.get('sumOpenInterest', 0)) for item in data]
+                    # 最后一个值作为当前持仓量
+                    latest = oi_values[-1]
+                    # 计算平均持仓量
+                    average = float(np.mean(oi_values))
+                    logger.info(f"获取持仓量成功 - 当前: {symbol} {oi_values[-1]}, 平均: {average} (基于 {len(data)} 个数据点)")
+                return OIData(latest=latest, average=average)
             except Exception as e:
                 logger.warning(f"获取OI数据失败 {symbol}: {e}")
                 return OIData(latest=0, average=0)
+            
 
-    async def _get_funding_rate(self, symbol: str) -> float:
+    async def _get_funding_rate(self, symbol: str) -> Decimal:
         """获取资金费率"""
         url = f"{self.base_url}/fapi/v1/premiumIndex"
         params = {"symbol": symbol}
@@ -186,12 +193,11 @@ class MarketDataFetcher:
                 response = await client.get(url, params=params, timeout=10.0)
                 response.raise_for_status()
                 data = response.json()
-
-                return float(data.get("lastFundingRate", 0))
+                return Decimal(data.get("lastFundingRate", 0))
 
             except Exception as e:
                 logger.warning(f"获取Funding Rate失败 {symbol}: {e}")
-                return 0.0
+                return Decimal(0.0)
 
     def _calculate_ema(self, series: pd.Series, period: int) -> pd.Series:
         """计算 EMA - 使用 pandas_ta"""
@@ -293,7 +299,7 @@ def format_market_data(data: MarketData) -> str:
             f"Average: {data.open_interest.average:.2f}\n"
         )
 
-    lines.append(f"Funding Rate: {data.funding_rate:.2e}\n")
+    lines.append(f"Funding Rate: {data.funding_rate:.8f}\n")
 
     # 日内系列数据（3分钟）
     if data.intraday_series:

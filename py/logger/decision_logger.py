@@ -291,8 +291,8 @@ class DecisionLogger:
                             "close_price": close_price,
                             "position_value": position_value,
                             "margin_used": margin_used,
-                            "pnl": pnl,
-                            "pnl_pct": pnl_pct,
+                            "pn_l": pnl,  # 注意：使用 pn_l 与 Go 版本一致
+                            "pn_l_pct": pnl_pct,  # 注意：使用 pn_l_pct 与 Go 版本一致
                             "duration": duration_str,  # 持仓时长
                             "open_time": open_pos["open_time"],
                             "close_time": action.get("timestamp", ""),
@@ -317,13 +317,13 @@ class DecisionLogger:
                                 "winning_trades": 0,
                                 "losing_trades": 0,
                                 "win_rate": 0.0,
-                                "total_pnl": 0.0,
-                                "avg_pnl": 0.0,
+                                "total_pn_l": 0.0,  # 注意：使用 total_pn_l 与 Go 版本一致（前端期望）
+                                "avg_pn_l": 0.0,
                             }
 
                         stats = symbol_stats[symbol]
                         stats["total_trades"] += 1
-                        stats["total_pnl"] += pnl
+                        stats["total_pn_l"] += pnl
                         if pnl > 0:
                             stats["winning_trades"] += 1
                         elif pnl < 0:
@@ -356,14 +356,14 @@ class DecisionLogger:
         for symbol, stats in symbol_stats.items():
             if stats["total_trades"] > 0:
                 stats["win_rate"] = (stats["winning_trades"] / stats["total_trades"]) * 100
-                stats["avg_pnl"] = stats["total_pnl"] / stats["total_trades"]
+                stats["avg_pn_l"] = stats["total_pn_l"] / stats["total_trades"]
 
-                if stats["total_pnl"] > best_pnl:
-                    best_pnl = stats["total_pnl"]
+                if stats["total_pn_l"] > best_pnl:
+                    best_pnl = stats["total_pn_l"]
                     best_symbol = symbol
 
-                if stats["total_pnl"] < worst_pnl:
-                    worst_pnl = stats["total_pnl"]
+                if stats["total_pn_l"] < worst_pnl:
+                    worst_pnl = stats["total_pn_l"]
                     worst_symbol = symbol
 
         # 7. 只保留最近10笔交易（倒序：最新的在前）

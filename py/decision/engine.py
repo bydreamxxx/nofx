@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from loguru import logger
 
 from market import MarketDataFetcher
+from market.data import format_market_data
 from pool import CoinPoolManager
 from mcp import Client as MCPClient
 
@@ -209,7 +210,7 @@ class DecisionEngine:
                     oi_value = data.open_interest.latest * data.current_price
                     oi_value_in_millions = oi_value / 1_000_000  # 转换为百万美元单位
 
-                    if oi_value_in_millions < 15:
+                    if oi_value != 0 and oi_value_in_millions < 15:
                         logger.warning(
                             f"⚠️  {symbol} 持仓价值过低({oi_value_in_millions:.2f}M USD < 15M)，跳过此币种 "
                             f"[持仓量:{data.open_interest.latest:.0f} × 价格:{data.current_price:.4f}]"
@@ -426,7 +427,7 @@ class DecisionEngine:
                 # 市场数据
                 if pos.symbol in ctx.market_data_map:
                     market_data = ctx.market_data_map[pos.symbol]
-                    parts.append(self._format_market_data(market_data))
+                    parts.append(format_market_data(market_data))
                     parts.append("")
         else:
             parts.append("**当前持仓**: 无\n")
@@ -448,7 +449,7 @@ class DecisionEngine:
                 source_tags = " (OI_Top持仓增长)"
 
             parts.append(f"### {displayed_count}. {coin.symbol}{source_tags}\n")
-            parts.append(self._format_market_data(market_data))
+            parts.append(format_market_data(market_data))
             parts.append("")
 
         # 夏普比率
@@ -465,28 +466,6 @@ class DecisionEngine:
         parts.append("---\n")
         parts.append("现在请分析并输出决策（思维链 + JSON）")
 
-        return "\n".join(parts)
-
-    def _format_market_data(self, data: Any) -> str:
-        """格式化市场数据"""
-        # 这里简化处理，实际应该与Go版本保持一致
-        parts = []
-        parts.append(
-            f"**价格**: {data.current_price:.4f} | "
-            f"1h: {data.price_change_1h:+.2f}% | "
-            f"4h: {data.price_change_4h:+.2f}%"
-        )
-        parts.append(
-            f"**指标**: EMA20: {data.current_ema20:.4f} | "
-            f"MACD: {data.current_macd:.4f} | "
-            f"RSI7: {data.current_rsi7:.2f}"
-        )
-        if data.open_interest:
-            parts.append(
-                f"**OI**: Latest: {data.open_interest.latest:.0f} | "
-                f"Avg: {data.open_interest.average:.0f}"
-            )
-        parts.append(f"**资金费率**: {data.funding_rate:.6f}")
         return "\n".join(parts)
 
     def _parse_full_decision_response(
