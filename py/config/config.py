@@ -76,12 +76,14 @@ class Config(BaseModel):
     ])
     coin_pool_api_url: str = ""
     oi_top_api_url: str = ""
+    inside_coins: bool = False  # 是否使用内置AI评分信号源
     api_server_port: int = 8080
     max_daily_loss: float = 0.0
     max_drawdown: float = 0.0
     stop_trading_minutes: int = 0
     leverage: LeverageConfig = Field(default_factory=LeverageConfig)
     jwt_secret: str = ""  # JWT密钥
+    data_k_line_time: str = ""  # K线数据时间配置
 
     def validate_config(self) -> None:
         """验证配置"""
@@ -187,6 +189,11 @@ async def sync_config_to_database(config_path: str, database) -> bool:
         logger.success(f"✓ 同步配置: oi_top_api_url = {config.oi_top_api_url}")
         sync_count += 1
 
+        # inside_coins
+        await database.set_system_config("inside_coins", str(config.inside_coins).lower())
+        logger.success(f"✓ 同步配置: inside_coins = {config.inside_coins}")
+        sync_count += 1
+
         # max_daily_loss
         await database.set_system_config("max_daily_loss", str(float(config.max_daily_loss)))
         logger.success(f"✓ 同步配置: max_daily_loss = {config.max_daily_loss}")
@@ -218,6 +225,12 @@ async def sync_config_to_database(config_path: str, database) -> bool:
         if config.jwt_secret:
             await database.set_system_config("jwt_secret", config.jwt_secret)
             logger.success(f"✓ 同步配置: jwt_secret = ***（已隐藏）")
+            sync_count += 1
+
+        # data_k_line_time
+        if config.data_k_line_time:
+            await database.set_system_config("data_k_line_time", config.data_k_line_time)
+            logger.success(f"✓ 同步配置: data_k_line_time = {config.data_k_line_time}")
             sync_count += 1
 
         logger.success(f"✅ config.json 同步完成，共同步 {sync_count} 项配置")

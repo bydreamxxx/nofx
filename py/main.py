@@ -92,6 +92,22 @@ async def main():
     auth.set_admin_mode(admin_mode)
     logger.success(f"✓ 认证系统初始化完成 (admin_mode={admin_mode})")
 
+    # 启动 WebSocket 监控器（如果配置启用）
+    inside_coins_str = await database.get_system_config("inside_coins")
+    inside_coins = inside_coins_str == "true"
+
+    ws_monitor = None
+    if inside_coins:
+        logger.info("🌊 启动 WebSocket 市场数据监控器...")
+        try:
+            from market import init_monitor
+            # 启动监控器（不指定币种，监控所有永续合约）
+            ws_monitor = await init_monitor(coins=None, batch_size=150)
+            logger.success("✅ WebSocket 监控器已启动")
+        except Exception as e:
+            logger.error(f"❌ WebSocket 监控器启动失败: {e}")
+            logger.warning("⚠️  将回退到 REST API 模式")
+
     # 初始化交易员管理器
     logger.info("🤖 初始化交易员管理器...")
     trader_manager = TraderManager()
@@ -99,6 +115,12 @@ async def main():
     try:
         await trader_manager.load_traders_from_database(database)
         logger.success(f"✓ 交易员管理器初始化成功")
+
+        # 如果 WebSocket 监控器已启动，设置到交易员
+        if ws_monitor:
+            await trader_manager.set_ws_monitor(ws_monitor)
+            logger.success("✓ 交易员已切换到 WebSocket 数据模式")
+
     except Exception as e:
         logger.error(f"❌ 交易员管理器初始化失败: {e}")
         await database.close()

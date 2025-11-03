@@ -385,6 +385,14 @@ class TraderManager:
             f"✅ 交易员 {trader_cfg['name']} (ID: {trader_id}) 已添加到管理器"
         )
 
+    async def set_ws_monitor(self, ws_monitor) -> None:
+        """设置 WebSocket 监控器到所有交易员"""
+        async with self._lock:
+            for trader in self.traders.values():
+                trader.market_fetcher.set_ws_monitor(ws_monitor)
+
+        logger.success(f"✅ 已为 {len(self.traders)} 个交易员设置 WebSocket 监控器")
+
     async def start_all(self) -> None:
         """启动所有交易员"""
         # 锁保护：读取 traders

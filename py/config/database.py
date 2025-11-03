@@ -179,8 +179,9 @@ class Database:
         # 添加新字段（如果不存在）
         alter_queries = [
             "ALTER TABLE traders ADD COLUMN system_prompt_template TEXT DEFAULT 'default'",  # 系统提示词模板名称
-            "ALTER TABLE ai_models ADD COLUMN custom_api_url TEXT DEFAULT ''",              # 自定义API地址
-            "ALTER TABLE ai_models ADD COLUMN custom_model_name TEXT DEFAULT ''",           # 自定义模型名称
+            "ALTER TABLE traders ADD COLUMN use_inside_coins BOOLEAN DEFAULT 0",             # 是否使用内置AI评分信号源
+            "ALTER TABLE ai_models ADD COLUMN custom_api_url TEXT DEFAULT ''",               # 自定义API地址
+            "ALTER TABLE ai_models ADD COLUMN custom_model_name TEXT DEFAULT ''",            # 自定义模型名称
         ]
 
         for query in alter_queries:
@@ -230,6 +231,7 @@ class Database:
             "default_coins": '["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT","DOGEUSDT","ADAUSDT","HYPEUSDT"]',
             "coin_pool_api_url": "",
             "oi_top_api_url": "",
+            "inside_coins": "false",           # 是否使用内置AI评分信号源
             "max_daily_loss": "0",
             "max_drawdown": "0",
             "stop_trading_minutes": "0",
@@ -237,6 +239,7 @@ class Database:
             "altcoin_leverage": "5",
             "admin_mode": "false",
             "jwt_secret": secrets.token_urlsafe(32),
+            "data_k_line_time": "",            # K线数据时间配置
         }
 
         for key, value in default_configs.items():

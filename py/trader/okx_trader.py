@@ -122,7 +122,7 @@ class OKXTrader(Trader):
         self.balance_cache = result
         self.balance_cache_time = datetime.now()
 
-        logger.info(f"✅ 账户余额: {result['balance']:.2f} USDT")
+        logger.info(f"✅ 账户余额: {result['balance']:.4f} USDT")
         return result
 
     async def get_positions(self) -> List[Dict[str, Any]]:

@@ -61,8 +61,16 @@ class MarketData:
 class MarketDataFetcher:
     """市场数据获取器"""
 
-    def __init__(self):
+    def __init__(self, use_websocket: bool = False):
         self.base_url = "https://fapi.binance.com"
+        self.use_websocket = use_websocket
+        self.ws_monitor = None
+
+    def set_ws_monitor(self, monitor):
+        """设置 WebSocket 监控器"""
+        self.ws_monitor = monitor
+        self.use_websocket = True
+        logger.info("✓ MarketDataFetcher 已切换到 WebSocket 模式")
 
     def normalize_symbol(self, symbol: str) -> str:
         """标准化币种符号"""
@@ -75,9 +83,13 @@ class MarketDataFetcher:
         """获取指定代币的市场数据"""
         symbol = self.normalize_symbol(symbol)
 
-        # 获取 K 线数据
-        klines_3m = await self._get_klines(symbol, "3m", 40)
-        klines_4h = await self._get_klines(symbol, "4h", 60)
+        # 获取 K 线数据（优先使用 WebSocket）
+        if self.use_websocket and self.ws_monitor:
+            klines_3m = await self._get_klines_from_ws(symbol, "3m")
+            klines_4h = await self._get_klines_from_ws(symbol, "4h")
+        else:
+            klines_3m = await self._get_klines(symbol, "3m", 40)
+            klines_4h = await self._get_klines(symbol, "4h", 60)
 
         # 计算当前指标（基于 3 分钟最新数据）
         df_3m = pd.DataFrame(klines_3m)
@@ -126,10 +138,41 @@ class MarketDataFetcher:
             longer_term_context=longer_term_data,
         )
 
+    async def _get_klines_from_ws(
+        self, symbol: str, interval: str
+    ) -> List[Dict[str, float]]:
+        """从 WebSocket 监控器获取 K 线数据"""
+        if not self.ws_monitor:
+            # 回退到 REST API
+            logger.warning(f"⚠️  WebSocket 监控器未设置，回退到 REST API")
+            return await self._get_klines(symbol, interval, 100)
+
+        klines_data = self.ws_monitor.get_current_klines(symbol, interval)
+
+        if not klines_data:
+            # 如果没有数据，回退到 REST API
+            logger.warning(f"⚠️  {symbol} {interval} WebSocket 数据不可用，回退到 REST API")
+            return await self._get_klines(symbol, interval, 100)
+
+        # 转换为标准格式
+        klines = []
+        for kline in klines_data:
+            klines.append({
+                "open_time": kline.open_time,
+                "open": kline.open,
+                "high": kline.high,
+                "low": kline.low,
+                "close": kline.close,
+                "volume": kline.volume,
+                "close_time": kline.close_time,
+            })
+
+        return klines
+
     async def _get_klines(
         self, symbol: str, interval: str, limit: int
     ) -> List[Dict[str, float]]:
-        """从 Binance 获取 K 线数据"""
+        """从 Binance REST API 获取 K 线数据"""
         url = f"{self.base_url}/fapi/v1/klines"
         params = {"symbol": symbol, "interval": interval, "limit": limit}
 
@@ -284,7 +327,7 @@ def format_market_data(data: MarketData) -> str:
 
     # 当前价格和指标
     lines.append(
-        f"current_price = {data.current_price:.2f}, "
+        f"current_price = {data.current_price:.5f}, "
         f"current_ema20 = {data.current_ema20:.3f}, "
         f"current_macd = {data.current_macd:.3f}, "
         f"current_rsi (7 period) = {data.current_rsi7:.3f}\n"

@@ -380,8 +380,8 @@ class DecisionEngine:
         if "BTCUSDT" in ctx.market_data_map:
             btc_data = ctx.market_data_map["BTCUSDT"]
             parts.append(
-                f"**BTC**: {btc_data.current_price:.2f} "
-                f"(1h: {btc_data.price_change_1h:+.2f}%, 4h: {btc_data.price_change_4h:+.2f}%) | "
+                f"**BTC**: {btc_data.current_price:.4f} "
+                f"(1h: {btc_data.price_change_1h:+.4f}%, 4h: {btc_data.price_change_4h:+.4f}%) | "
                 f"MACD: {btc_data.current_macd:.4f} | RSI: {btc_data.current_rsi7:.2f}\n"
             )
 
@@ -392,8 +392,8 @@ class DecisionEngine:
             else 0
         )
         parts.append(
-            f"**账户**: 净值{ctx.account.total_equity:.2f} | "
-            f"余额{ctx.account.available_balance:.2f} ({balance_pct:.1f}%) | "
+            f"**账户**: 净值{ctx.account.total_equity:.4f} | "
+            f"余额{ctx.account.available_balance:.4f} ({balance_pct:.1f}%) | "
             f"盈亏{ctx.account.total_pnl_pct:+.2f}% | "
             f"保证金{ctx.account.margin_used_pct:.1f}% | "
             f"持仓{ctx.account.position_count}个\n"
@@ -681,5 +681,5 @@ class DecisionEngine:
                 raise ValueError(
                     f"风险回报比过低({risk_reward_ratio:.2f}:1)，必须≥3.0:1 "
                     f"[风险:{risk_percent:.2f}% 收益:{reward_percent:.2f}%] "
-                    f"[止损:{d.stop_loss:.2f} 止盈:{d.take_profit:.2f}]"
+                    f"[止损:{d.stop_loss:.4f} 止盈:{d.take_profit:.4f}]"
                 )

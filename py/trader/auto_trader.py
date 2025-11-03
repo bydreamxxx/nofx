@@ -259,7 +259,7 @@ class AutoTrader:
         self.start_time = datetime.now()
 
         logger.info("🚀 AI驱动自动交易系统启动")
-        logger.info(f"💰 初始余额: {self.initial_balance:.2f} USDT")
+        logger.info(f"💰 初始余额: {self.initial_balance:.4f} USDT")
         logger.info(f"⚙️  扫描间隔: {self.config.scan_interval_minutes} 分钟")
         logger.info("🤖 AI将全权决定杠杆、仓位大小、止损止盈等参数")
 
@@ -355,8 +355,8 @@ class AutoTrader:
             record_data["candidate_coins"] = [coin.symbol for coin in ctx.candidate_coins]
 
             logger.info(
-                f"📊 账户净值: {ctx.account.total_equity:.2f} USDT | "
-                f"可用: {ctx.account.available_balance:.2f} USDT | "
+                f"📊 账户净值: {ctx.account.total_equity:.4f} USDT | "
+                f"可用: {ctx.account.available_balance:.4f} USDT | "
                 f"持仓: {ctx.account.position_count}"
             )
 
@@ -437,7 +437,7 @@ class AutoTrader:
                 logger.info(f"  [{i}] {d.symbol}: {d.action} - {d.reasoning}")
                 if d.action in ["open_long", "open_short"]:
                     logger.info(
-                        f"      杠杆: {d.leverage}x | 仓位: {d.position_size_usd:.2f} USDT | "
+                        f"      杠杆: {d.leverage}x | 仓位: {d.position_size_usd:.4f} USDT | "
                         f"止损: {d.stop_loss:.4f} | 止盈: {d.take_profit:.4f}"
                     )
 

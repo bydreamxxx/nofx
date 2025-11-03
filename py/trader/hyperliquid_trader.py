@@ -149,7 +149,7 @@ class HyperliquidTrader(Trader):
         self.balance_cache = result
         self.balance_cache_time = datetime.now()
 
-        logger.info(f"✅ 账户余额: {account_value:.2f} USDC")
+        logger.info(f"✅ 账户余额: {account_value:.4f} USDC")
         return result
 
     async def get_positions(self) -> List[Dict[str, Any]]:
