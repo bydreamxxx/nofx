@@ -232,9 +232,9 @@ class Database:
             "coin_pool_api_url": "",
             "oi_top_api_url": "",
             "inside_coins": "false",           # 是否使用内置AI评分信号源
-            "max_daily_loss": "0",
-            "max_drawdown": "0",
-            "stop_trading_minutes": "0",
+            "max_daily_loss": "10",
+            "max_drawdown": "20",
+            "stop_trading_minutes": "60",
             "btc_eth_leverage": "5",
             "altcoin_leverage": "5",
             "admin_mode": "false",

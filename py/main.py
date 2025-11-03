@@ -4,6 +4,7 @@ NOFX Python 版本 - 主程序入口
 
 import asyncio
 import argparse
+import json
 import sys
 from pathlib import Path
 from loguru import logger
@@ -92,9 +93,34 @@ async def main():
     auth.set_admin_mode(admin_mode)
     logger.success(f"✓ 认证系统初始化完成 (admin_mode={admin_mode})")
 
+    # 初始化 HTTP 代理配置
+    from utils.http_config import set_http_proxy
+    http_proxy = await database.get_system_config("http_proxy")
+    if http_proxy:
+        set_http_proxy(http_proxy)
+        logger.success(f"✓ HTTP 代理已配置: {http_proxy}")
+    else:
+        logger.info("ℹ️  未配置 HTTP 代理")
+
     # 启动 WebSocket 监控器（如果配置启用）
     inside_coins_str = await database.get_system_config("inside_coins")
     inside_coins = inside_coins_str == "true"
+
+    # 获取默认币种
+    default_coins_str = await database.get_system_config("default_coins")
+    default_coins = []
+    if default_coins_str:
+        try:
+            default_coins = json.loads(default_coins_str)
+        except json.JSONDecodeError:
+            pass
+
+    if not default_coins:
+        # 使用硬编码的默认币种
+        default_coins = [
+            "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT",
+            "XRPUSDT", "DOGEUSDT", "ADAUSDT", "HYPEUSDT"
+        ]
 
     ws_monitor = None
     if inside_coins:
@@ -102,7 +128,7 @@ async def main():
         try:
             from market import init_monitor
             # 启动监控器（不指定币种，监控所有永续合约）
-            ws_monitor = await init_monitor(coins=None, batch_size=150)
+            ws_monitor = await init_monitor(coins=default_coins, batch_size=150)
             logger.success("✅ WebSocket 监控器已启动")
         except Exception as e:
             logger.error(f"❌ WebSocket 监控器启动失败: {e}")

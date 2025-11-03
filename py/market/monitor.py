@@ -6,10 +6,12 @@ import asyncio
 from typing import Dict, List, Optional
 from loguru import logger
 import httpx
+from httpx_retry import AsyncRetryTransport, RetryPolicy
 from dataclasses import dataclass
 from datetime import datetime
 
 from .websocket_client import WebSocketClient
+from utils.http_config import get_http_proxy
 
 
 @dataclass
@@ -32,6 +34,7 @@ class WSMonitor:
     """WebSocket 市场数据监控器"""
 
     def __init__(self, batch_size: int = 150):
+        # 使用 /stream 端点以支持动态订阅
         self.ws_client = WebSocketClient("wss://fstream.binance.com/stream")
         self.symbols: List[str] = []
         self.kline_data_3m: Dict[str, List[Kline]] = {}
@@ -60,7 +63,13 @@ class WSMonitor:
     async def _get_all_perpetual_symbols(self) -> List[str]:
         """获取所有永续合约交易对"""
         try:
-            async with httpx.AsyncClient() as client:
+            proxy = get_http_proxy()
+            async with httpx.AsyncClient(
+                proxy=proxy,
+                http2=True,
+                transport=AsyncRetryTransport(policy=RetryPolicy().with_max_retries(3).with_min_delay(1).with_multiplier(2)),
+                timeout=10.0
+            ) as client:
                 response = await client.get("https://fapi.binance.com/fapi/v1/exchangeInfo")
                 data = response.json()
 
@@ -74,7 +83,7 @@ class WSMonitor:
                 return symbols
 
         except Exception as e:
-            logger.error(f"❌ 获取交易对列表失败: {e}")
+            logger.error(f"❌ 获取交易对列表失败: {str(e)} {e}")
             return []
 
     async def _initialize_historical_data(self):
@@ -110,7 +119,13 @@ class WSMonitor:
     async def _fetch_klines(self, symbol: str, interval: str, limit: int = 100) -> List[Kline]:
         """获取K线数据"""
         try:
-            async with httpx.AsyncClient() as client:
+            proxy = get_http_proxy()
+            async with httpx.AsyncClient(
+                proxy=proxy,
+                http2=True,
+                transport=AsyncRetryTransport(policy=RetryPolicy().with_max_retries(3).with_min_delay(1).with_multiplier(2)),
+                timeout=10.0
+            ) as client:
                 url = "https://fapi.binance.com/fapi/v1/klines"
                 params = {
                     "symbol": symbol,
@@ -168,6 +183,12 @@ class WSMonitor:
         """订阅所有交易对"""
         logger.info("📡 开始订阅所有交易对...")
 
+        # 币安 WebSocket 限制：每个连接最多 1024 个流
+        total_streams = len(self.symbols) * 2  # 每个币种订阅 3m 和 4h
+        if total_streams > 1024:
+            logger.warning(f"⚠️  总流数量 {total_streams} 超过限制 1024，将只订阅前 {512} 个币种")
+            self.symbols = self.symbols[:512]
+
         # 分批订阅（避免一次性订阅太多）
         for i in range(0, len(self.symbols), self.batch_size):
             batch = self.symbols[i:i + self.batch_size]
@@ -176,27 +197,39 @@ class WSMonitor:
             for interval in ["3m", "4h"]:
                 streams = [f"{s.lower()}@kline_{interval}" for s in batch]
 
-                # 订阅流
+                # 为每个流添加订阅者队列和处理任务
                 for stream in streams:
-                    queue = self.ws_client.add_subscriber(stream, 100)
+                    queue = self.ws_client.add_subscriber(stream, 500)  # 增加队列大小到500
                     # 启动处理任务
                     task = asyncio.create_task(self._handle_kline_stream(stream, queue, interval))
                     self.tasks.append(task)
 
-                # 使用组合流订阅
-                combined_stream = "/".join(streams)
-                await self.ws_client.subscribe(combined_stream)
+                # 批量订阅流（传入流列表）
+                try:
+                    await self.ws_client.subscribe(streams)  # 直接传入列表
+                    logger.debug(f"✓ 订阅批次 {i // self.batch_size + 1} ({interval}): {len(streams)} 个流")
+                except Exception as e:
+                    logger.error(f"❌ 订阅失败: {e}")
 
             await asyncio.sleep(0.1)  # 避免请求过快
 
-        logger.success(f"✅ 所有交易对订阅完成: {len(self.symbols)} 个")
+        logger.success(f"✅ 所有交易对订阅完成: {len(self.symbols)} 个币种，共 {len(self.symbols) * 2} 个流")
 
     async def _handle_kline_stream(self, stream: str, queue: asyncio.Queue, interval: str):
         """处理K线数据流"""
+        last_queue_warn_time = 0
         while self.running:
             try:
-                # 从队列获取数据
+                # 从队列获取数据（非阻塞，快速消费）
                 data = await asyncio.wait_for(queue.get(), timeout=1.0)
+
+                # 检查队列积压情况（每10秒最多警告一次）
+                queue_size = queue.qsize()
+                if queue_size > 400:  # 队列使用超过80%
+                    current_time = asyncio.get_event_loop().time()
+                    if current_time - last_queue_warn_time > 10:
+                        logger.warning(f"⚠️  队列积压: {stream} ({queue_size}/500)")
+                        last_queue_warn_time = current_time
 
                 # 解析 K线数据
                 symbol = data["s"]
@@ -216,14 +249,16 @@ class WSMonitor:
                     taker_buy_quote_volume=float(k["Q"])
                 )
 
-                # 更新K线数据
+                # 更新K线数据（同步操作，非常快）
                 self._update_kline_data(symbol, kline, interval)
 
             except asyncio.TimeoutError:
                 continue
+            except KeyError as e:
+                logger.error(f"❌ 数据格式错误 {stream}: 缺少字段 {e}")
             except Exception as e:
-                logger.error(f"❌ 处理K线数据失败: {e}")
-                await asyncio.sleep(1)
+                logger.error(f"❌ 处理K线数据失败 {stream}: {e}")
+                await asyncio.sleep(0.1)  # 短暂延迟，避免错误循环
 
     def _update_kline_data(self, symbol: str, kline: Kline, interval: str):
         """更新K线数据"""

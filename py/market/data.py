@@ -4,12 +4,14 @@
 
 from decimal import Decimal
 import httpx
+from httpx_retry import AsyncRetryTransport, RetryPolicy
 import pandas as pd
 import pandas_ta as ta
 import numpy as np
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from loguru import logger
+from utils.http_config import get_http_proxy
 
 
 @dataclass
@@ -176,9 +178,15 @@ class MarketDataFetcher:
         url = f"{self.base_url}/fapi/v1/klines"
         params = {"symbol": symbol, "interval": interval, "limit": limit}
 
-        async with httpx.AsyncClient() as client:
+        proxy = get_http_proxy()
+        async with httpx.AsyncClient(
+            proxy=proxy,
+            http2=True,
+            transport=AsyncRetryTransport(policy=RetryPolicy().with_max_retries(3).with_min_delay(1).with_multiplier(2)),
+            timeout=10.0
+        ) as client:
             try:
-                response = await client.get(url, params=params, timeout=10.0)
+                response = await client.get(url, params=params)
                 response.raise_for_status()
                 data = response.json()
 
@@ -205,9 +213,15 @@ class MarketDataFetcher:
         url = f"{self.base_url}/futures/data/openInterestHist"
         params = {"symbol": symbol, "period": "5m", "limit": 30}
 
-        async with httpx.AsyncClient() as client:
+        proxy = get_http_proxy()
+        async with httpx.AsyncClient(
+            proxy=proxy,
+            http2=True,
+            transport=AsyncRetryTransport(policy=RetryPolicy().with_max_retries(3).with_min_delay(1).with_multiplier(2)),
+            timeout=10.0
+        ) as client:
             try:
-                response = await client.get(url, params=params, timeout=10.0)
+                response = await client.get(url, params=params)
                 response.raise_for_status()
                 data = response.json()
                 latest = 0
@@ -231,9 +245,15 @@ class MarketDataFetcher:
         url = f"{self.base_url}/fapi/v1/premiumIndex"
         params = {"symbol": symbol}
 
-        async with httpx.AsyncClient() as client:
+        proxy = get_http_proxy()
+        async with httpx.AsyncClient(
+            proxy=proxy,
+            http2=True,
+            transport=AsyncRetryTransport(policy=RetryPolicy().with_max_retries(3).with_min_delay(1).with_multiplier(2)),
+            timeout=10.0
+        ) as client:
             try:
-                response = await client.get(url, params=params, timeout=10.0)
+                response = await client.get(url, params=params)
                 response.raise_for_status()
                 data = response.json()
                 return Decimal(data.get("lastFundingRate", 0))

@@ -7,6 +7,7 @@ Aster 是一个与 Binance API 兼容的去中心化交易所
 
 import asyncio
 import httpx
+from httpx_retry import AsyncRetryTransport, RetryPolicy
 import hashlib
 import hmac
 import time
@@ -15,6 +16,7 @@ from datetime import datetime, timedelta
 from eth_account import Account
 from eth_account.messages import encode_structured_data
 from loguru import logger
+from utils.http_config import get_http_proxy
 
 from .interface import Trader
 
@@ -136,7 +138,12 @@ class AsterTrader(Trader):
             headers["X-ASTER-TIMESTAMP"] = timestamp
             headers["X-ASTER-SIGNATURE"] = signature
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        proxy = get_http_proxy()
+        async with httpx.AsyncClient(
+            proxy=proxy,
+            transport=AsyncRetryTransport(policy=RetryPolicy().with_max_retries(3).with_min_delay(1).with_multiplier(2)),
+            timeout=30.0
+        ) as client:
             if method == "GET":
                 response = await client.get(url, params=params, headers=headers)
             elif method == "POST":

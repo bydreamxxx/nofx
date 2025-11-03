@@ -77,6 +77,7 @@ class Config(BaseModel):
     coin_pool_api_url: str = ""
     oi_top_api_url: str = ""
     inside_coins: bool = False  # 是否使用内置AI评分信号源
+    http_proxy: str = ""  # HTTP代理配置（如: http://127.0.0.1:7897）
     api_server_port: int = 8080
     max_daily_loss: float = 0.0
     max_drawdown: float = 0.0
@@ -192,6 +193,11 @@ async def sync_config_to_database(config_path: str, database) -> bool:
         # inside_coins
         await database.set_system_config("inside_coins", str(config.inside_coins).lower())
         logger.success(f"✓ 同步配置: inside_coins = {config.inside_coins}")
+        sync_count += 1
+
+        # http_proxy
+        await database.set_system_config("http_proxy", config.http_proxy)
+        logger.success(f"✓ 同步配置: http_proxy = {config.http_proxy if config.http_proxy else '(未配置)'}")
         sync_count += 1
 
         # max_daily_loss

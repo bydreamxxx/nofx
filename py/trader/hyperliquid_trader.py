@@ -7,11 +7,13 @@ Hyperliquid 是一个去中心化的永续合约交易所
 
 import asyncio
 import httpx
+from httpx_retry import AsyncRetryTransport, RetryPolicy
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from eth_account import Account
 from eth_account.messages import encode_defunct
 from loguru import logger
+from utils.http_config import get_http_proxy
 
 from .interface import Trader
 
@@ -82,7 +84,12 @@ class HyperliquidTrader(Trader):
         """发送 POST 请求"""
         url = f"{self.base_url}{endpoint}"
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        proxy = get_http_proxy()
+        async with httpx.AsyncClient(
+            proxy=proxy,
+            transport=AsyncRetryTransport(policy=RetryPolicy().with_max_retries(3).with_min_delay(1).with_multiplier(2)),
+            timeout=30.0
+        ) as client:
             response = await client.post(url, json=data)
             response.raise_for_status()
             return response.json()
@@ -91,7 +98,12 @@ class HyperliquidTrader(Trader):
         """发送 GET 请求"""
         url = f"{self.base_url}{endpoint}"
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        proxy = get_http_proxy()
+        async with httpx.AsyncClient(
+            proxy=proxy,
+            transport=AsyncRetryTransport(policy=RetryPolicy().with_max_retries(3).with_min_delay(1).with_multiplier(2)),
+            timeout=30.0
+        ) as client:
             response = await client.post(url, json=params or {})  # Hyperliquid 使用 POST
             response.raise_for_status()
             return response.json()

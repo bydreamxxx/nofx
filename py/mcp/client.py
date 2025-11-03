@@ -4,10 +4,13 @@ AI API 客户端
 支持: DeepSeek, Qwen, OpenRouter (通过 custom), 和其他 OpenAI 兼容 API
 """
 
+import httpx
 from openai import AsyncOpenAI
 from enum import Enum
 from typing import Optional
 from loguru import logger
+
+from utils.http_config import get_http_proxy
 
 
 class Provider(str, Enum):
@@ -130,13 +133,15 @@ class Client:
             self.model = "deepseek/deepseek-chat-v3.1"  # 可选: qwen-turbo, qwen-plus, qwen-max
             logger.debug(f"🔧 [MCP] OpenRouter 使用默认 Model: {self.model}")
 
+        proxy = get_http_proxy()
         self.client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
-            timeout=120.0
+            timeout=120.0,
+            http_client=httpx.AsyncClient(proxy=proxy)
         )
         logger.debug("✓ OpenRouter API 已配置")
-
+        
     def set_custom_api(self, base_url: str, api_key: str, model: str):
         """
         设置自定义 OpenAI 兼容 API
@@ -158,10 +163,12 @@ class Client:
         # 移除 URL 末尾的 # 标记（兼容旧配置）
         clean_base_url = base_url.rstrip("#")
 
+        proxy = get_http_proxy()
         self.client = AsyncOpenAI(
             api_key=api_key,
             base_url=clean_base_url,
             timeout=120.0,
+            http_client=httpx.AsyncClient(proxy=proxy),
             max_retries=3  # SDK 自动重试
         )
         logger.debug(f"✓ 自定义 API 已配置: {clean_base_url} (模型: {model})")

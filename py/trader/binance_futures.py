@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from binance.client import Client as BinanceClient
 from binance.exceptions import BinanceAPIException
 from loguru import logger
+from utils.http_config import get_http_proxy
 
 from .interface import Trader
 

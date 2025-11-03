@@ -16,11 +16,13 @@
 import os
 import json
 import httpx
+from httpx_retry import AsyncRetryTransport, RetryPolicy
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, field
 from loguru import logger
+from utils.http_config import get_http_proxy
 
 
 # 默认主流币种列表
@@ -120,46 +122,39 @@ class CoinPoolManager:
             logger.warning("⚠️  未配置币种池API URL，使用默认主流币种列表")
             return self._convert_symbols_to_coins(DEFAULT_MAINSTREAM_COINS)
 
-        # 尝试从API获取（带重试）
-        max_retries = 3
-        last_error = None
-
-        for attempt in range(1, max_retries + 1):
-            if attempt > 1:
-                logger.warning(f"⚠️  第{attempt}次重试获取币种池（共{max_retries}次）...")
-                await self._async_sleep(2)  # 重试前等待2秒
-
-            try:
-                coins = await self._fetch_coin_pool()
-                if attempt > 1:
-                    logger.info(f"✓ 第{attempt}次重试成功")
-
-                # 成功获取后保存到缓存
-                await self._save_coin_pool_cache(coins)
-                return coins
-
-            except Exception as e:
-                last_error = e
-                logger.error(f"❌ 第{attempt}次请求失败: {e}")
-
-        # API获取失败，尝试使用缓存
-        logger.warning("⚠️  API请求全部失败，尝试使用历史缓存数据...")
+        # 尝试从API获取（内层已有重试机制）
         try:
-            cached_coins = await self._load_coin_pool_cache()
-            logger.info(f"✓ 使用历史缓存数据（共{len(cached_coins)}个币种）")
-            return cached_coins
-        except Exception as e:
-            logger.warning(f"⚠️  无法加载缓存数据: {e}")
+            coins = await self._fetch_coin_pool()
+            # 成功获取后保存到缓存
+            await self._save_coin_pool_cache(coins)
+            return coins
 
-        # 缓存也失败，使用默认主流币种
-        logger.warning(f"⚠️  最后错误: {last_error}，使用默认主流币种列表")
-        return self._convert_symbols_to_coins(DEFAULT_MAINSTREAM_COINS)
+        except Exception as e:
+            logger.error(f"❌ API请求失败: {e}")
+
+            # API获取失败，尝试使用缓存
+            logger.warning("⚠️  尝试使用历史缓存数据...")
+            try:
+                cached_coins = await self._load_coin_pool_cache()
+                logger.info(f"✓ 使用历史缓存数据（共{len(cached_coins)}个币种）")
+                return cached_coins
+            except Exception as cache_error:
+                logger.warning(f"⚠️  无法加载缓存数据: {cache_error}")
+
+            # 缓存也失败，使用默认主流币种
+            logger.warning(f"⚠️  使用默认主流币种列表")
+            return self._convert_symbols_to_coins(DEFAULT_MAINSTREAM_COINS)
 
     async def _fetch_coin_pool(self) -> List[CoinInfo]:
         """实际执行币种池请求"""
         logger.info("🔄 正在请求AI500币种池...")
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        proxy = get_http_proxy()
+        async with httpx.AsyncClient(
+            proxy=proxy,
+            transport=AsyncRetryTransport(policy=RetryPolicy().with_max_retries(3).with_min_delay(1).with_multiplier(2)),
+            timeout=self.timeout
+        ) as client:
             response = await client.get(self.coin_pool_api_url)
             response.raise_for_status()
             data = response.json()
@@ -316,46 +311,39 @@ class CoinPoolManager:
             logger.warning("⚠️  未配置OI Top API URL，跳过OI Top数据获取")
             return []
 
-        # 尝试从API获取（带重试）
-        max_retries = 3
-        last_error = None
-
-        for attempt in range(1, max_retries + 1):
-            if attempt > 1:
-                logger.warning(f"⚠️  第{attempt}次重试获取OI Top数据（共{max_retries}次）...")
-                await self._async_sleep(2)
-
-            try:
-                positions = await self._fetch_oi_top()
-                if attempt > 1:
-                    logger.info(f"✓ 第{attempt}次重试成功")
-
-                # 成功获取后保存到缓存
-                await self._save_oi_top_cache(positions)
-                return positions
-
-            except Exception as e:
-                last_error = e
-                logger.error(f"❌ 第{attempt}次请求OI Top失败: {e}")
-
-        # API获取失败，尝试使用缓存
-        logger.warning("⚠️  OI Top API请求全部失败，尝试使用历史缓存数据...")
+        # 尝试从API获取（内层已有重试机制）
         try:
-            cached_positions = await self._load_oi_top_cache()
-            logger.info(f"✓ 使用历史OI Top缓存数据（共{len(cached_positions)}个币种）")
-            return cached_positions
-        except Exception as e:
-            logger.warning(f"⚠️  无法加载OI Top缓存数据: {e}")
+            positions = await self._fetch_oi_top()
+            # 成功获取后保存到缓存
+            await self._save_oi_top_cache(positions)
+            return positions
 
-        # 缓存也失败，返回空列表（OI Top是可选的）
-        logger.warning(f"⚠️  最后错误: {last_error}，跳过OI Top数据")
-        return []
+        except Exception as e:
+            logger.error(f"❌ OI Top API请求失败: {e}")
+
+            # API获取失败，尝试使用缓存
+            logger.warning("⚠️  尝试使用历史缓存数据...")
+            try:
+                cached_positions = await self._load_oi_top_cache()
+                logger.info(f"✓ 使用历史OI Top缓存数据（共{len(cached_positions)}个币种）")
+                return cached_positions
+            except Exception as cache_error:
+                logger.warning(f"⚠️  无法加载OI Top缓存数据: {cache_error}")
+
+            # 缓存也失败，返回空列表（OI Top是可选的）
+            logger.warning(f"⚠️  跳过OI Top数据")
+            return []
 
     async def _fetch_oi_top(self) -> List[OIPosition]:
         """实际执行OI Top请求"""
         logger.info("🔄 正在请求OI Top数据...")
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        proxy = get_http_proxy()
+        async with httpx.AsyncClient(
+            proxy=proxy,
+            transport=AsyncRetryTransport(policy=RetryPolicy().with_max_retries(3).with_min_delay(1).with_multiplier(2)),
+            timeout=self.timeout
+        ) as client:
             response = await client.get(self.oi_top_api_url)
             response.raise_for_status()
             data = response.json()

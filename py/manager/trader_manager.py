@@ -22,7 +22,6 @@ class TraderManager:
     def __init__(self):
         self.traders: Dict[str, AutoTrader] = {}  # key: trader ID
         self.trader_tasks: Dict[str, asyncio.Task] = {}  # 运行中的任务
-        self._lock = asyncio.Lock()  # 并发锁保护 traders 和 trader_tasks
 
     async def load_traders_from_database(self, database: Database) -> None:
         """从数据库加载所有交易员到内存"""
@@ -73,6 +72,11 @@ class TraderManager:
 
         # 为每个交易员获取AI模型和交易所配置
         for trader_cfg in traders:
+            # 检查是否已经加载过这个交易员，如果存在则先移除再重新加载
+            if trader_cfg["id"] in self.traders:
+                logger.info(f"🔄 交易员 {trader_cfg['name']} 已存在，重新加载最新配置...")
+                del self.traders[trader_cfg["id"]]
+
             if not trader_cfg.get("enabled", True):
                 logger.info(f"⏭️  交易员 {trader_cfg['name']} 未启用，跳过")
                 continue
@@ -193,10 +197,9 @@ class TraderManager:
         # 为每个交易员获取AI模型和交易所配置
         for trader_cfg in traders:
             # 检查是否已经加载过这个交易员
-            async with self._lock:
-                if trader_cfg["id"] in self.traders:
-                    logger.debug(f"⚠️ 交易员 {trader_cfg['name']} 已经加载，跳过")
-                    continue
+            if trader_cfg["id"] in self.traders:
+                logger.debug(f"⚠️ 交易员 {trader_cfg['name']} 已经加载，跳过")
+                continue
 
             if not trader_cfg.get("enabled", True):
                 logger.debug(f"⏭️  交易员 {trader_cfg['name']} 未启用，跳过")
@@ -272,10 +275,9 @@ class TraderManager:
         """内部方法：从配置添加交易员"""
         trader_id = trader_cfg["id"]
 
-        # 锁保护：检查是否已存在
-        async with self._lock:
-            if trader_id in self.traders:
-                raise ValueError(f"trader ID '{trader_id}' 已存在")
+        # 检查是否已存在
+        if trader_id in self.traders:
+            raise ValueError(f"trader ID '{trader_id}' 已存在")
 
         # 处理交易币种列表
         trading_coins = []
@@ -377,9 +379,8 @@ class TraderManager:
         # 初始化trader
         await auto_trader.initialize()
 
-        # 锁保护：添加到管理器
-        async with self._lock:
-            self.traders[trader_id] = auto_trader
+        # 添加到管理器
+        self.traders[trader_id] = auto_trader
 
         logger.info(
             f"✅ 交易员 {trader_cfg['name']} (ID: {trader_id}) 已添加到管理器"
@@ -387,54 +388,38 @@ class TraderManager:
 
     async def set_ws_monitor(self, ws_monitor) -> None:
         """设置 WebSocket 监控器到所有交易员"""
-        async with self._lock:
-            for trader in self.traders.values():
-                trader.market_fetcher.set_ws_monitor(ws_monitor)
+        for trader in self.traders.values():
+            trader.market_fetcher.set_ws_monitor(ws_monitor)
 
         logger.success(f"✅ 已为 {len(self.traders)} 个交易员设置 WebSocket 监控器")
 
     async def start_all(self) -> None:
         """启动所有交易员"""
-        # 锁保护：读取 traders
-        async with self._lock:
-            traders_copy = dict(self.traders)
-
-        for trader_id, trader in traders_copy.items():
+        for trader_id, trader in self.traders.items():
             try:
                 if trader.is_running:
                     # 创建异步任务
                     task = asyncio.create_task(trader.run())
-
-                    # 锁保护：写入 trader_tasks
-                    async with self._lock:
-                        self.trader_tasks[trader_id] = task
-
+                    self.trader_tasks[trader_id] = task
                     logger.info(f"✅ 交易员 {trader.name} 已启动")
             except Exception as e:
                 logger.error(f"❌ 启动交易员 {trader.name} 失败: {e}")
 
-        async with self._lock:
-            logger.info(f"✓ 已启动 {len(self.trader_tasks)} 个交易员")
+        logger.info(f"✓ 已启动 {len(self.trader_tasks)} 个交易员")
 
     async def stop_all(self) -> None:
         """停止所有交易员"""
-        # 锁保护：读取 traders
-        async with self._lock:
-            traders_copy = dict(self.traders)
-            logger.info(f"⏹ 停止所有交易员 ({len(traders_copy)} 个)...")
+        logger.info(f"⏹ 停止所有交易员 ({len(self.traders)} 个)...")
 
-        for trader_id, trader in traders_copy.items():
+        for trader_id, trader in self.traders.items():
             try:
                 trader.stop()
                 logger.info(f"✅ 交易员 {trader.name} 停止信号已发送")
             except Exception as e:
                 logger.error(f"❌ 停止交易员 {trader.name} 失败: {e}")
 
-        # 锁保护：读取任务列表
-        async with self._lock:
-            tasks = list(self.trader_tasks.values()) if self.trader_tasks else []
-
-        # 在锁外等待任务完成（避免长时间持有锁）
+        # 等待任务完成
+        tasks = list(self.trader_tasks.values()) if self.trader_tasks else []
         if tasks:
             logger.debug(f"⏳ 等待 {len(tasks)} 个交易员任务完成...")
             _, pending = await asyncio.wait(tasks, timeout=10.0)
@@ -447,35 +432,28 @@ class TraderManager:
                 await asyncio.gather(*pending, return_exceptions=True)
 
         # 清空任务字典
-        async with self._lock:
-            self.trader_tasks.clear()
+        self.trader_tasks.clear()
 
         logger.info("✓ 所有交易员已停止")
 
     async def get_trader(self, trader_id: str) -> Optional[AutoTrader]:
         """获取指定交易员"""
-        async with self._lock:
-            return self.traders.get(trader_id)
+        return self.traders.get(trader_id)
 
     async def get_all_traders(self) -> Dict[str, AutoTrader]:
         """获取所有交易员"""
-        async with self._lock:
-            return dict(self.traders)
+        return dict(self.traders)
 
     async def get_trader_status(self, trader_id: str) -> Optional[Dict[str, Any]]:
         """获取指定交易员的状态"""
-        async with self._lock:
-            trader = self.traders.get(trader_id)
-            if not trader:
-                return None
+        trader = self.traders.get(trader_id)
+        if not trader:
+            return None
         return trader.get_status()
 
     async def get_all_trader_status(self) -> List[Dict[str, Any]]:
         """获取所有交易员的状态"""
-        async with self._lock:
-            traders_copy = list(self.traders.values())
-
         statuses = []
-        for trader in traders_copy:
+        for trader in self.traders.values():
             statuses.append(trader.get_status())
         return statuses
