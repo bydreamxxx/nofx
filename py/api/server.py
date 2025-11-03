@@ -339,7 +339,7 @@ def create_app(trader_manager: TraderManager, database: Database = None) -> Fast
     @app.get("/api/decisions/latest")
     async def get_latest_decisions(
         trader_id: str,
-        limit: int = 5,
+        limit: int = 10,
         current_user: Dict = Depends(get_current_user)
     ):
         """获取最近的决策记录"""

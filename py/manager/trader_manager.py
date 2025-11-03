@@ -374,7 +374,7 @@ class TraderManager:
             config.custom_model_name = ai_model_cfg.get("model_name", "")
 
         # 创建trader实例
-        auto_trader = AutoTrader(config)
+        auto_trader = AutoTrader(config, trader_cfg.get("is_running", 0))
 
         # 初始化trader
         await auto_trader.initialize()

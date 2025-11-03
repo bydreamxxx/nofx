@@ -127,7 +127,7 @@ async def main():
         logger.info("🌊 启动 WebSocket 市场数据监控器...")
         try:
             from market import init_monitor
-            # 启动监控器（不指定币种，监控所有永续合约）
+            # 启动监控器（指定币种，监控指定永续合约）
             ws_monitor = await init_monitor(coins=default_coins, batch_size=150)
             logger.success("✅ WebSocket 监控器已启动")
         except Exception as e:

@@ -233,7 +233,7 @@ class MarketDataFetcher:
                     latest = oi_values[-1]
                     # 计算平均持仓量
                     average = float(np.mean(oi_values))
-                    logger.info(f"获取持仓量成功 - 当前: {symbol} {oi_values[-1]}, 平均: {average} (基于 {len(data)} 个数据点)")
+                    logger.debug(f"获取持仓量成功 - 当前: {symbol} {oi_values[-1]}, 平均: {average} (基于 {len(data)} 个数据点)")
                 return OIData(latest=latest, average=average)
             except Exception as e:
                 logger.warning(f"获取OI数据失败 {symbol}: {e}")

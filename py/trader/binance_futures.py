@@ -563,6 +563,106 @@ class BinanceFuturesTrader(Trader):
         except BinanceAPIException as e:
             logger.warning(f"  ⚠️ 取消挂单失败: {e}")
 
+    async def get_commission_rate(self, symbol: str) -> Dict[str, Any]:
+        """获取指定交易对的手续费率"""
+        try:
+            # 调用币安 API 获取手续费率
+            response = await asyncio.to_thread(
+                self.client.futures_commission_rate,
+                symbol=symbol
+            )
+
+            commission_rate = {
+                "symbol": response['symbol'],
+                "makerCommissionRate": float(response['makerCommissionRate']),  # Maker 费率
+                "takerCommissionRate": float(response['takerCommissionRate']),  # Taker 费率
+            }
+
+            logger.debug(
+                f"✓ {symbol} 手续费率: "
+                f"Maker={commission_rate['makerCommissionRate']*100:.4f}%, "
+                f"Taker={commission_rate['takerCommissionRate']*100:.4f}%"
+            )
+
+            return commission_rate
+
+        except BinanceAPIException as e:
+            logger.error(f"❌ 获取手续费率失败: {e}")
+            # 返回默认费率（VIP 0 级别）
+            return {
+                "symbol": symbol,
+                "makerCommissionRate": 0.0002,  # 0.02%
+                "takerCommissionRate": 0.0004,  # 0.04%
+            }
+
+    async def calculate_position_fee(self, symbol: str, quantity: float, entry_price: float) -> Dict[str, Any]:
+        """
+        计算持仓的开仓手续费
+
+        Args:
+            symbol: 交易对
+            quantity: 持仓数量（币数）
+            entry_price: 开仓价格
+
+        Returns:
+            手续费详情
+        """
+        # 获取手续费率
+        rate_info = await self.get_commission_rate(symbol)
+
+        # 计算持仓价值（USDT）
+        position_value = abs(quantity) * entry_price
+
+        # 市价单通常是 taker，计算手续费
+        taker_fee = position_value * rate_info['takerCommissionRate']
+
+        return {
+            "symbol": symbol,
+            "position_value_usdt": position_value,
+            "taker_commission_rate": rate_info['takerCommissionRate'],
+            "maker_commission_rate": rate_info['makerCommissionRate'],
+            "estimated_open_fee_usdt": taker_fee,  # 开仓手续费
+            "estimated_close_fee_usdt": taker_fee,  # 平仓手续费（假设同样价格）
+            "total_round_trip_fee_usdt": taker_fee * 2,  # 往返手续费
+        }
+
+    async def get_account_commission_info(self) -> Dict[str, Any]:
+        """
+        获取账户整体手续费信息（所有持仓的手续费汇总）
+        """
+        positions = await self.get_positions()
+
+        total_position_value = 0.0
+        total_estimated_fees = 0.0
+        position_fees = []
+
+        for pos in positions:
+            symbol = pos['symbol']
+            quantity = pos['positionAmt']
+            entry_price = pos['entryPrice']
+
+            # 计算每个持仓的手续费
+            fee_info = await self.calculate_position_fee(symbol, quantity, entry_price)
+
+            position_fees.append({
+                "symbol": symbol,
+                "side": pos['side'],
+                "position_value": fee_info['position_value_usdt'],
+                "open_fee": fee_info['estimated_open_fee_usdt'],
+                "close_fee": fee_info['estimated_close_fee_usdt'],
+                "round_trip_fee": fee_info['total_round_trip_fee_usdt'],
+            })
+
+            total_position_value += fee_info['position_value_usdt']
+            total_estimated_fees += fee_info['total_round_trip_fee_usdt']
+
+        return {
+            "total_positions": len(positions),
+            "total_position_value_usdt": total_position_value,
+            "total_estimated_round_trip_fees_usdt": total_estimated_fees,
+            "positions": position_fees
+        }
+
     async def format_quantity(self, symbol: str, quantity: float) -> str:
         """格式化数量到正确的精度"""
         # 获取交易所信息

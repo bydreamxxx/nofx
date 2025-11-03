@@ -116,7 +116,7 @@ class AutoTraderConfig:
 class AutoTrader:
     """自动交易器"""
 
-    def __init__(self, config: AutoTraderConfig):
+    def __init__(self, config: AutoTraderConfig, is_running: bool = False):
         self.id = config.id
         self.name = config.name
         self.ai_model = config.ai_model
@@ -136,7 +136,7 @@ class AutoTrader:
         self.daily_pnl = 0.0
         self.last_reset_time = datetime.now()
         self.stop_until = datetime.now()
-        self.is_running = False
+        self.is_running = is_running
         self.start_time = datetime.now()
         self.call_count = 0
         self.position_first_seen_time: Dict[str, int] = {}  # symbol_side -> timestamp毫秒
