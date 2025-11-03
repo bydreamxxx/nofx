@@ -202,7 +202,7 @@ class AsterTrader(Trader):
             position_amt = float(pos.get("positionAmt", 0))
 
             # 过滤空持仓
-            if abs(position_amt) < 0.0001:
+            if abs(position_amt) < 0.00001:
                 continue
 
             symbol = pos.get("symbol", "")

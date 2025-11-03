@@ -137,7 +137,7 @@ class OKXTrader(Trader):
             contracts = float(pos.get("contracts", 0))
 
             # 过滤空持仓
-            if abs(contracts) < 0.0001:
+            if abs(contracts) < 0.00001:
                 continue
 
             symbol = self._convert_symbol_from_okx(pos.get("symbol", ""))

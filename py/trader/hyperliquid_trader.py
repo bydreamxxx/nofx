@@ -168,7 +168,7 @@ class HyperliquidTrader(Trader):
             position = asset_pos.get("position", {})
             szi = float(position.get("szi", 0))
 
-            if abs(szi) < 0.0001:  # 忽略极小持仓
+            if abs(szi) < 0.00001:  # 忽略极小持仓
                 continue
 
             coin = position.get("coin", "")
