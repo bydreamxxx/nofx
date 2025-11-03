@@ -198,27 +198,48 @@ class BinanceFuturesTrader(Trader):
             return
 
         try:
-            # 尝试启用双向持仓模式
+            # 先查询当前持仓模式
+            position_mode = await asyncio.to_thread(
+                self.client.futures_get_position_mode
+            )
+
+            # 检查是否已经是双向持仓模式
+            is_dual_side = position_mode.get("dualSidePosition", False)
+
+            if is_dual_side:
+                logger.debug("✓ 账户已处于双向持仓模式")
+                self._dual_position_mode_set = True
+                return
+
+            # 如果不是双向持仓模式，尝试切换
+            logger.info("🔄 正在切换到双向持仓模式...")
             await asyncio.to_thread(
                 self.client.futures_change_position_mode,
                 dualSidePosition=True
             )
-            logger.info("✓ 已启用双向持仓模式（hedge mode）")
+            logger.success("✅ 已成功切换到双向持仓模式（hedge mode）")
             self._dual_position_mode_set = True
+
         except BinanceAPIException as e:
             error_msg = str(e)
-            # 如果已经是双向持仓模式，不报错
+            # 如果报错说明不需要改变，说明已经是双向模式
             if "No need to change position side" in error_msg:
                 logger.debug("✓ 账户已处于双向持仓模式")
                 self._dual_position_mode_set = True
             else:
                 logger.warning(f"⚠️ 设置双向持仓模式失败: {e}")
                 # 不抛出异常，让交易继续尝试
+        except Exception as e:
+            logger.warning(f"⚠️ 检查/设置持仓模式失败: {e}")
+            # 不抛出异常，让交易继续尝试
 
     async def open_long(
         self, symbol: str, quantity: float, leverage: int
     ) -> Dict[str, Any]:
         """开多仓"""
+
+        # 确保账户处于双向持仓模式
+        await self._ensure_dual_position_mode()
 
         # 先取消该币种的所有委托单（清理旧的止损止盈单）
         try:
@@ -260,6 +281,9 @@ class BinanceFuturesTrader(Trader):
         self, symbol: str, quantity: float, leverage: int
     ) -> Dict[str, Any]:
         """开空仓"""
+
+        # 确保账户处于双向持仓模式
+        await self._ensure_dual_position_mode()
 
         # 先取消该币种的所有委托单（清理旧的止损止盈单）
         try:
